@@ -1,0 +1,24 @@
+{
+  "name": "hanziglow-extension",
+  "version": "1.0.0",
+  "description": "Chrome extension for Chinese text pinyin annotations and translations",
+  "private": true,
+  "scripts": {
+    "dev": "vite build --watch --mode development",
+    "build": "vite build",
+    "test": "vitest run",
+    "test:watch": "vitest --watch"
+  },
+  "dependencies": {
+    "pinyin-pro": "^3"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "@types/chrome": "^0",
+    "vite": "^6",
+    "vite-plugin-web-extension": "^4",
+    "vitest": "^4",
+    "vitest-chrome-mv3": "^1",
+    "jsdom": "^26"
+  }
+}
