@@ -12,11 +12,12 @@
  *
  * See: SPEC.md Section 3 "Architecture" for the service worker's role,
  *      SPEC.md Section 5 "Data Flow" for the two-phase message flow,
- *      IMPLEMENTATION_GUIDE.md Steps 3-4 for implementation details.
+ *      IMPLEMENTATION_GUIDE.md Steps 3-5 for implementation details.
  */
 
 import { convertToPinyin } from "./pinyin-service";
 import { queryLLM } from "./llm-client";
+import { hashText, getFromCache, saveToCache, evictExpiredEntries } from "./cache";
 import {
   DEFAULT_SETTINGS,
   PROVIDER_PRESETS,
@@ -85,11 +86,13 @@ async function handlePinyinRequest(
 }
 
 /**
- * Async LLM path (Phase 2). Derives an LLMConfig from the user's
- * settings, calls queryLLM, and sends the result (or an error)
- * back to the content script via chrome.tabs.sendMessage.
+ * Async LLM path (Phase 2). Checks the chrome.storage.local cache
+ * before calling queryLLM to avoid redundant API calls for text the
+ * user has already looked up.  On cache miss, calls the LLM and
+ * stores the result for next time.
+ *
  * Skips silently if LLM is disabled or the provider isn't configured.
- * (SPEC.md Section 6 "Fallback Strategy")
+ * (SPEC.md Section 6 "Fallback Strategy", "Caching")
  */
 async function handleLLMPath(
   request: PinyinRequest,
@@ -100,6 +103,20 @@ async function handleLLMPath(
 
   const preset = PROVIDER_PRESETS[settings.provider];
   if (preset.requiresApiKey && !settings.apiKey) return;
+
+  // Cache lookup keyed on text+context so identical selections in
+  // different paragraphs get separate, contextually correct entries.
+  const cacheKey = await hashText(request.text + request.context);
+  const cached = await getFromCache(cacheKey);
+
+  if (cached) {
+    chrome.tabs.sendMessage(tabId, {
+      type: "PINYIN_RESPONSE_LLM",
+      words: cached.words,
+      translation: cached.translation,
+    });
+    return;
+  }
 
   const config: LLMConfig = {
     provider: settings.provider,
@@ -113,6 +130,7 @@ async function handleLLMPath(
   const result = await queryLLM(request.text, request.context, config);
 
   if (result) {
+    await saveToCache(cacheKey, result);
     chrome.tabs.sendMessage(tabId, {
       type: "PINYIN_RESPONSE_LLM",
       words: result.words,
@@ -133,6 +151,10 @@ async function handleLLMPath(
  * Creates the right-click "Show Pinyin & Translation" menu item
  * on first install and on extension updates. Only appears when
  * the user has text selected. (SPEC.md Section 2.6)
+ *
+ * Also runs cache eviction to clean up expired / over-limit entries
+ * that may have accumulated since the last install or update.
+ * (SPEC.md Section 6 "Caching", IMPLEMENTATION_GUIDE.md Step 5b)
  */
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
@@ -140,6 +162,8 @@ chrome.runtime.onInstalled.addListener(() => {
     title: "Show Pinyin & Translation",
     contexts: ["selection"],
   });
+
+  evictExpiredEntries();
 });
 
 /**
