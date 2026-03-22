@@ -3,9 +3,8 @@
  *
  * Receives PINYIN_REQUEST messages from the content script and returns
  * a Phase 1 (local pinyin-pro) response immediately via sendResponse.
- * An async LLM path (Phase 2) is stubbed here and will be wired in
- * Step 4 to send back contextual definitions and translations via
- * chrome.tabs.sendMessage.
+ * Phase 2 calls the LLM client asynchronously, sending contextual
+ * definitions and translations back via chrome.tabs.sendMessage.
  *
  * Also registers the "Show Pinyin & Translation" context menu item
  * and handles the Alt+Shift+P keyboard shortcut, forwarding both
@@ -13,13 +12,20 @@
  *
  * See: SPEC.md Section 3 "Architecture" for the service worker's role,
  *      SPEC.md Section 5 "Data Flow" for the two-phase message flow,
- *      IMPLEMENTATION_GUIDE.md Step 3 for implementation details.
+ *      IMPLEMENTATION_GUIDE.md Steps 3-4 for implementation details.
  */
 
 import { convertToPinyin } from "./pinyin-service";
-import { DEFAULT_SETTINGS, PROVIDER_PRESETS } from "../shared/constants";
+import { queryLLM } from "./llm-client";
+import {
+  DEFAULT_SETTINGS,
+  PROVIDER_PRESETS,
+  LLM_MAX_TOKENS,
+  LLM_TEMPERATURE,
+} from "../shared/constants";
 import type {
   ExtensionSettings,
+  LLMConfig,
   PinyinRequest,
   PinyinResponseLocal,
 } from "../shared/types";
@@ -74,28 +80,51 @@ async function handlePinyinRequest(
 
   sendResponse({ type: "PINYIN_RESPONSE_LOCAL", words });
 
-  // Phase 2 LLM path -- stubbed for Step 3, wired in Step 4
+  // Phase 2: async LLM call for contextual definitions + translation
   handleLLMPath(request, tabId, settings);
 }
 
 /**
- * Async LLM path (Phase 2). Checks whether the provider is properly
- * configured before attempting the call. Currently a stub -- the
- * actual queryLLM() import and call will be added in Step 4.
+ * Async LLM path (Phase 2). Derives an LLMConfig from the user's
+ * settings, calls queryLLM, and sends the result (or an error)
+ * back to the content script via chrome.tabs.sendMessage.
+ * Skips silently if LLM is disabled or the provider isn't configured.
  * (SPEC.md Section 6 "Fallback Strategy")
  */
 async function handleLLMPath(
-  _request: PinyinRequest,
-  _tabId: number | undefined,
+  request: PinyinRequest,
+  tabId: number | undefined,
   settings: ExtensionSettings,
 ): Promise<void> {
-  if (!settings.llmEnabled) return;
+  if (!settings.llmEnabled || !tabId) return;
 
   const preset = PROVIDER_PRESETS[settings.provider];
   if (preset.requiresApiKey && !settings.apiKey) return;
 
-  // Step 4 will: import queryLLM, call it, cache the result,
-  // and send PINYIN_RESPONSE_LLM back via chrome.tabs.sendMessage.
+  const config: LLMConfig = {
+    provider: settings.provider,
+    apiKey: settings.apiKey,
+    baseUrl: settings.baseUrl,
+    model: settings.model,
+    maxTokens: LLM_MAX_TOKENS,
+    temperature: LLM_TEMPERATURE,
+  };
+
+  const result = await queryLLM(request.text, request.context, config);
+
+  if (result) {
+    chrome.tabs.sendMessage(tabId, {
+      type: "PINYIN_RESPONSE_LLM",
+      words: result.words,
+      translation: result.translation,
+    });
+  } else {
+    chrome.tabs.sendMessage(tabId, {
+      type: "PINYIN_ERROR",
+      error: "LLM request failed",
+      phase: "llm",
+    });
+  }
 }
 
 // ─── Context Menu ──────────────────────────────────────────────────
