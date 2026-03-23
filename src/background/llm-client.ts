@@ -171,8 +171,10 @@ export async function queryLLM(
 
     if (result) return result;
 
+    console.warn("[LLM-client] attemptFetch returned null");
     return null;
-  } catch {
+  } catch (err) {
+    console.error("[LLM-client] queryLLM caught error:", err);
     return null;
   } finally {
     clearTimeout(timeout);
@@ -193,20 +195,30 @@ async function attemptFetch(
 ): Promise<LLMResponse | null> {
   const { url, init } = buildRequest(text, context, config, apiStyle, signal);
 
+  console.log("[LLM-client] Fetching: %s", url);
+
   let response = await fetch(url, init);
 
   // Retry once on 5xx server errors
   if (!response.ok && response.status >= 500) {
+    console.warn("[LLM-client] Got %d, retrying in 1s…", response.status);
     await new Promise((r) => setTimeout(r, 1000));
     response = await fetch(url, init);
   }
 
-  if (!response.ok) return null;
+  if (!response.ok) {
+    const body = await response.text().catch(() => "(unreadable)");
+    console.error("[LLM-client] HTTP %d %s — body: %s", response.status, response.statusText, body.slice(0, 500));
+    return null;
+  }
 
   const data = await response.json();
   const parsed = parseResponse(data, apiStyle);
 
-  if (!validateLLMResponse(parsed)) return null;
+  if (!validateLLMResponse(parsed)) {
+    console.error("[LLM-client] Response failed validation. Raw parsed:", parsed);
+    return null;
+  }
 
   return parsed;
 }

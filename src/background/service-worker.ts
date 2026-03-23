@@ -100,10 +100,14 @@ async function handleLLMPath(
   tabId: number | undefined,
   settings: ExtensionSettings,
 ): Promise<void> {
-  if (!settings.llmEnabled || !tabId) return;
+  if (!settings.llmEnabled || !tabId) {
+    console.log("[LLM] Skipped: llmEnabled=%s, tabId=%s", settings.llmEnabled, tabId);
+    return;
+  }
 
   const preset = PROVIDER_PRESETS[settings.provider];
   if (preset.requiresApiKey && !settings.apiKey) {
+    console.warn("[LLM] No API key set for provider '%s'", settings.provider);
     chrome.tabs.sendMessage(tabId, {
       type: "PINYIN_ERROR",
       error: "Set up an API key in extension settings for translations.",
@@ -112,12 +116,16 @@ async function handleLLMPath(
     return;
   }
 
+  console.log("[LLM] Starting request: provider=%s, model=%s, baseUrl=%s, text='%s'",
+    settings.provider, settings.model, settings.baseUrl, request.text.slice(0, 50));
+
   // Cache lookup keyed on text+context so identical selections in
   // different paragraphs get separate, contextually correct entries.
   const cacheKey = await hashText(request.text + request.context);
   const cached = await getFromCache(cacheKey);
 
   if (cached) {
+    console.log("[LLM] Cache hit for key=%s", cacheKey.slice(0, 12));
     chrome.tabs.sendMessage(tabId, {
       type: "PINYIN_RESPONSE_LLM",
       words: cached.words,
@@ -126,6 +134,8 @@ async function handleLLMPath(
     recordWords(cached.words);
     return;
   }
+
+  console.log("[LLM] Cache miss, calling queryLLM…");
 
   const config: LLMConfig = {
     provider: settings.provider,
@@ -139,6 +149,8 @@ async function handleLLMPath(
   const result = await queryLLM(request.text, request.context, config);
 
   if (result) {
+    console.log("[LLM] Success: %d words, translation='%s'",
+      result.words.length, result.translation.slice(0, 80));
     await saveToCache(cacheKey, result);
     chrome.tabs.sendMessage(tabId, {
       type: "PINYIN_RESPONSE_LLM",
@@ -147,6 +159,7 @@ async function handleLLMPath(
     });
     recordWords(result.words);
   } else {
+    console.error("[LLM] queryLLM returned null — request failed");
     chrome.tabs.sendMessage(tabId, {
       type: "PINYIN_ERROR",
       error: "LLM request failed",
