@@ -104,7 +104,7 @@ export const VOCAB_STOP_WORDS = new Set([
 // ─── LLM Request Configuration ────────────────────────────────────
 /** Abort controller timeout for each LLM fetch call. (SPEC.md Section 6) */
 export const LLM_TIMEOUT_MS = 10_000; // 10 seconds
-export const LLM_MAX_TOKENS = 1024;
+export const LLM_MAX_TOKENS = 2048;
 /** Zero temperature for deterministic, consistent pinyin output. */
 export const LLM_TEMPERATURE = 0;
 

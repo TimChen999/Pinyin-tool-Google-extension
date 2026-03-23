@@ -126,21 +126,30 @@ function buildRequest(
  */
 function parseResponse(data: unknown, apiStyle: APIStyle): unknown {
   const obj = data as Record<string, unknown>;
+  let raw: string | undefined;
 
   if (apiStyle === "gemini") {
     const candidates = obj.candidates as Array<Record<string, unknown>> | undefined;
     const text = (
       candidates?.[0]?.content as Record<string, unknown> | undefined
     )?.parts as Array<Record<string, unknown>> | undefined;
-    const raw = text?.[0]?.text as string | undefined;
-    return raw ? JSON.parse(raw) : null;
+    raw = text?.[0]?.text as string | undefined;
+  } else {
+    // OpenAI-compatible
+    const choices = obj.choices as Array<Record<string, unknown>> | undefined;
+    const message = choices?.[0]?.message as Record<string, unknown> | undefined;
+    raw = message?.content as string | undefined;
   }
 
-  // OpenAI-compatible
-  const choices = obj.choices as Array<Record<string, unknown>> | undefined;
-  const message = choices?.[0]?.message as Record<string, unknown> | undefined;
-  const content = message?.content as string | undefined;
-  return content ? JSON.parse(content) : null;
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    console.error("[LLM-client] JSON.parse failed. Raw text (%d chars):", raw.length, raw.slice(0, 500));
+    console.error("[LLM-client] Parse error:", err);
+    return null;
+  }
 }
 
 // ─── Main Entry Point ───────────────────────────────────────────────
