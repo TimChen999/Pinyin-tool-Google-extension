@@ -9,7 +9,7 @@
  */
 
 import type { VocabEntry, WordData } from "../shared/types";
-import { MAX_VOCAB_ENTRIES } from "../shared/constants";
+import { MAX_VOCAB_ENTRIES, VOCAB_STOP_WORDS } from "../shared/constants";
 
 const STORAGE_KEY = "vocabStore";
 
@@ -31,6 +31,7 @@ export async function recordWords(
   const now = Date.now();
 
   for (const word of words) {
+    if (VOCAB_STOP_WORDS.has(word.chars)) continue;
     const existing = store[word.chars];
     if (existing) {
       existing.count += 1;

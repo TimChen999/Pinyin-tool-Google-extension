@@ -88,6 +88,19 @@ export const MAX_CACHE_ENTRIES = 5000;
 /** Maximum number of words to store in the vocab list. Least-frequent entries are dropped first. */
 export const MAX_VOCAB_ENTRIES = 10_000;
 
+/**
+ * Common function words excluded from vocab recording.
+ * These appear in nearly every sentence and would inflate the list
+ * with words the user certainly already knows.
+ * (VOCAB_SPEC.md Section 6 "Stop-Word Filtering")
+ */
+export const VOCAB_STOP_WORDS = new Set([
+  "的", "了", "是", "在", "不", "我", "你", "他", "她", "它",
+  "们", "这", "那", "也", "都", "就", "和", "有", "很", "会",
+  "能", "要", "把", "被", "让", "给", "到", "从", "对", "为",
+  "吗", "呢", "吧", "啊", "嗯",
+]);
+
 // ─── LLM Request Configuration ────────────────────────────────────
 /** Abort controller timeout for each LLM fetch call. (SPEC.md Section 6) */
 export const LLM_TIMEOUT_MS = 10_000; // 10 seconds

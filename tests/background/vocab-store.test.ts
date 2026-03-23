@@ -4,7 +4,7 @@ import {
   getAllVocab,
   clearVocab,
 } from "../../src/background/vocab-store";
-import { MAX_VOCAB_ENTRIES } from "../../src/shared/constants";
+import { MAX_VOCAB_ENTRIES, VOCAB_STOP_WORDS } from "../../src/shared/constants";
 
 // ─── In-Memory Storage Backend ──────────────────────────────────────
 // vitest-chrome-mv3 provides bare vi.fn() stubs for chrome.storage.local,
@@ -162,6 +162,44 @@ describe("vocab-store", () => {
 
       const vocab = await getAllVocab();
       expect(vocab.length).toBeLessThanOrEqual(MAX_VOCAB_ENTRIES);
+    });
+  });
+
+  describe("stop-word filtering", () => {
+    it("does not record stop words", async () => {
+      await recordWords([
+        { chars: "的", pinyin: "de", definition: "possessive particle" },
+        { chars: "银行", pinyin: "yín háng", definition: "bank" },
+      ]);
+
+      const vocab = await getAllVocab();
+      expect(vocab).toHaveLength(1);
+      expect(vocab[0].chars).toBe("银行");
+    });
+
+    it("filters all stop words from VOCAB_STOP_WORDS set", async () => {
+      const stopWords = Array.from(VOCAB_STOP_WORDS).map((chars) => ({
+        chars,
+        pinyin: "test",
+        definition: "test",
+      }));
+      await recordWords(stopWords);
+
+      const vocab = await getAllVocab();
+      expect(vocab).toHaveLength(0);
+    });
+
+    it("still records non-stop words alongside stop words", async () => {
+      await recordWords([
+        { chars: "的", pinyin: "de", definition: "particle" },
+        { chars: "了", pinyin: "le", definition: "particle" },
+        { chars: "学习", pinyin: "xué xí", definition: "to study" },
+        { chars: "中文", pinyin: "zhōng wén", definition: "Chinese" },
+      ]);
+
+      const vocab = await getAllVocab();
+      expect(vocab).toHaveLength(2);
+      expect(vocab.map((v) => v.chars).sort()).toEqual(["中文", "学习"]);
     });
   });
 });

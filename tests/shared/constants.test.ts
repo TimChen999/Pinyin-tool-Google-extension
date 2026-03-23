@@ -9,6 +9,8 @@ import {
   DEBOUNCE_MS,
   PROVIDER_PRESETS,
   SYSTEM_PROMPT,
+  VOCAB_STOP_WORDS,
+  MAX_VOCAB_ENTRIES,
 } from "../../src/shared/constants";
 
 describe("constants", () => {
@@ -110,5 +112,22 @@ describe("SYSTEM_PROMPT", () => {
 
   it("mentions pinyin", () => {
     expect(SYSTEM_PROMPT.toLowerCase()).toContain("pinyin");
+  });
+});
+
+describe("vocab constants", () => {
+  it("VOCAB_STOP_WORDS is a non-empty Set", () => {
+    expect(VOCAB_STOP_WORDS).toBeInstanceOf(Set);
+    expect(VOCAB_STOP_WORDS.size).toBeGreaterThan(0);
+  });
+
+  it("VOCAB_STOP_WORDS contains common function words", () => {
+    expect(VOCAB_STOP_WORDS.has("的")).toBe(true);
+    expect(VOCAB_STOP_WORDS.has("了")).toBe(true);
+    expect(VOCAB_STOP_WORDS.has("是")).toBe(true);
+  });
+
+  it("MAX_VOCAB_ENTRIES is a positive number", () => {
+    expect(MAX_VOCAB_ENTRIES).toBeGreaterThan(0);
   });
 });
