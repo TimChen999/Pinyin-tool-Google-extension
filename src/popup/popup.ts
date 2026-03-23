@@ -44,6 +44,7 @@ function getElements() {
     vocabSort: document.getElementById("vocab-sort") as HTMLSelectElement,
     vocabList: document.getElementById("vocab-list") as HTMLDivElement,
     clearVocabBtn: document.getElementById("clear-vocab") as HTMLButtonElement,
+    refreshModels: document.getElementById("refresh-models") as HTMLButtonElement,
   };
 }
 
@@ -55,10 +56,34 @@ async function loadSettings(): Promise<ExtensionSettings> {
   return { ...DEFAULT_SETTINGS, ...stored };
 }
 
+// ─── Ollama Model Fetching ───────────────────────────────────────────
+
+/**
+ * Queries the Ollama OpenAI-compatible /models endpoint for installed
+ * models. Returns a sorted list of model IDs, or null if unreachable.
+ */
+export async function fetchOllamaModels(baseUrl: string): Promise<string[] | null> {
+  try {
+    const response = await fetch(`${baseUrl}/models`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!response.ok) return null;
+
+    const data = await response.json() as { data?: Array<{ id: string }> };
+    if (!Array.isArray(data.data)) return null;
+
+    return data.data.map((m) => m.id).sort();
+  } catch {
+    return null;
+  }
+}
+
 // ─── Model Dropdown ─────────────────────────────────────────────────
 
 /**
- * Rebuilds the model <select> from the provider preset's models array.
+ * Rebuilds the model <select> from a list of model names.
+ * Uses fetchedModels when provided (dynamic Ollama), otherwise
+ * falls back to the provider preset's static list.
  * Appends a "Custom..." sentinel. If currentModel matches a listed
  * option, selects it; otherwise selects "Custom..." and reveals the
  * custom-model text input.
@@ -68,11 +93,12 @@ function populateModels(
   customModelInput: HTMLInputElement,
   provider: LLMProvider,
   currentModel: string,
+  fetchedModels?: string[],
 ): void {
-  const preset = PROVIDER_PRESETS[provider];
+  const models = fetchedModels ?? PROVIDER_PRESETS[provider].models;
   modelSelect.innerHTML = "";
 
-  for (const m of preset.models) {
+  for (const m of models) {
     const opt = document.createElement("option");
     opt.value = m;
     opt.textContent = m;
@@ -84,7 +110,7 @@ function populateModels(
   customOpt.textContent = "Custom\u2026";
   modelSelect.appendChild(customOpt);
 
-  if (preset.models.includes(currentModel)) {
+  if (models.includes(currentModel)) {
     modelSelect.value = currentModel;
     customModelInput.classList.add("hidden");
   } else {
@@ -94,14 +120,55 @@ function populateModels(
   }
 }
 
+/**
+ * For Ollama: fetch live models, populate dropdown, and show a warning
+ * if the fetch fails. For other providers: use static preset list.
+ */
+async function refreshModels(
+  els: ReturnType<typeof getElements>,
+  provider: LLMProvider,
+  currentModel: string,
+): Promise<void> {
+  const refreshBtn = els.refreshModels;
+
+  if (provider !== "ollama") {
+    refreshBtn.classList.add("hidden");
+    populateModels(els.model, els.customModel, provider, currentModel);
+    return;
+  }
+
+  refreshBtn.classList.remove("hidden");
+
+  els.model.innerHTML = "";
+  const loadingOpt = document.createElement("option");
+  loadingOpt.disabled = true;
+  loadingOpt.selected = true;
+  loadingOpt.textContent = "Loading models\u2026";
+  els.model.appendChild(loadingOpt);
+
+  const baseUrl = els.baseUrl.value.trim() || PROVIDER_PRESETS.ollama.baseUrl;
+  const models = await fetchOllamaModels(baseUrl);
+
+  if (models && models.length > 0) {
+    populateModels(els.model, els.customModel, provider, currentModel, models);
+  } else {
+    populateModels(els.model, els.customModel, provider, currentModel);
+    if (models !== null && models.length === 0) {
+      showStatus(els.status, "Ollama is running but has no models installed.", "error");
+    } else {
+      showStatus(els.status, "Could not reach Ollama \u2014 showing default models.", "error");
+    }
+  }
+}
+
 // ─── Provider Switch ────────────────────────────────────────────────
 
 /**
  * When the user picks a new provider, auto-fill the base URL and
- * model list from PROVIDER_PRESETS, and show/hide the API key field
- * based on requiresApiKey. (SPEC.md Section 2.5)
+ * model list from PROVIDER_PRESETS (or live-fetch for Ollama), and
+ * show/hide the API key field based on requiresApiKey.
  */
-function onProviderChange(els: ReturnType<typeof getElements>): void {
+async function onProviderChange(els: ReturnType<typeof getElements>): Promise<void> {
   const provider = els.provider.value as LLMProvider;
   const preset = PROVIDER_PRESETS[provider];
 
@@ -114,7 +181,7 @@ function onProviderChange(els: ReturnType<typeof getElements>): void {
     els.apiKeyGroup.classList.add("hidden");
   }
 
-  populateModels(els.model, els.customModel, provider, preset.defaultModel);
+  await refreshModels(els, provider, preset.defaultModel);
 }
 
 // ─── Validation ─────────────────────────────────────────────────────
@@ -242,11 +309,18 @@ export async function initPopup(): Promise<void> {
     els.apiKeyGroup.classList.add("hidden");
   }
 
-  populateModels(els.model, els.customModel, settings.provider, settings.model);
+  await refreshModels(els, settings.provider, settings.model);
 
   // ─── Event listeners ──────────────────────────────────────────
 
   els.provider.addEventListener("change", () => onProviderChange(els));
+
+  els.refreshModels.addEventListener("click", () => {
+    const currentModel = els.model.value === "__custom__"
+      ? els.customModel.value.trim()
+      : els.model.value;
+    refreshModels(els, els.provider.value as LLMProvider, currentModel);
+  });
 
   els.model.addEventListener("change", () => {
     if (els.model.value === "__custom__") {

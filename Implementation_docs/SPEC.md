@@ -483,7 +483,7 @@ interface ProviderPreset {
   defaultModel: string;
   apiStyle: APIStyle;
   requiresApiKey: boolean;
-  models: string[];  // suggested models for the dropdown
+  models: string[];  // default/fallback models for the dropdown (Ollama fetches live models from its API)
 }
 
 interface LLMConfig {
@@ -519,7 +519,7 @@ const PROVIDER_PRESETS: Record<LLMProvider, ProviderPreset> = {
     defaultModel: "qwen2.5:7b",
     apiStyle: "openai",
     requiresApiKey: false,
-    models: ["qwen2.5:7b", "llama3:8b", "mistral:7b", "gemma2:9b"],
+    models: ["qwen2.5:7b", "llama3:8b", "mistral:7b", "gemma2:9b"],  // fallback when Ollama is unreachable
   },
   custom: {
     baseUrl: "",
@@ -531,7 +531,7 @@ const PROVIDER_PRESETS: Record<LLMProvider, ProviderPreset> = {
 };
 ```
 
-When the user selects a provider from the popup dropdown, the base URL, model, and other fields auto-populate from the preset. The user can still override any field.
+When the user selects a provider from the popup dropdown, the base URL, model, and other fields auto-populate from the preset. The user can still override any field. For Ollama, the model dropdown is populated dynamically by fetching installed models from the Ollama API (`GET /v1/models`). A refresh button lets the user re-fetch at any time. If Ollama is unreachable, the dropdown falls back to the hardcoded `models` list above and a warning is shown.
 
 ### Fallback Strategy
 
@@ -696,7 +696,7 @@ The popup opens when clicking the extension icon in the toolbar.
 └─────────────────────────────────┘
 ```
 
-When the user selects a provider from the dropdown, the API Key, Base URL, and Model fields auto-populate from the provider preset defined in `constants.ts`. The user can still override any field. For Ollama, the API Key field is hidden since no key is needed.
+When the user selects a provider from the dropdown, the API Key, Base URL, and Model fields auto-populate from the provider preset defined in `constants.ts`. The user can still override any field. For Ollama, the API Key field is hidden since no key is needed, and the Model dropdown is populated dynamically from the Ollama API rather than the static preset list.
 
 ---
 
@@ -1255,7 +1255,7 @@ Build a settings form with fields for:
 - LLM Provider (dropdown: OpenAI, Gemini, Ollama, Custom) -- selecting a provider auto-fills base URL and model from `PROVIDER_PRESETS`
 - API key (password input with show/hide toggle; hidden when provider is Ollama)
 - API Base URL (text input, auto-filled from provider preset, editable for overrides)
-- Model selection (dropdown populated from the selected provider's `models` list, plus a "custom" option with text input)
+- Model selection (dropdown populated from the selected provider's `models` list, plus a "custom" option with text input). For Ollama, models are fetched dynamically from the local Ollama API (`GET /v1/models`) with a fallback to the hardcoded preset list; a refresh button allows re-fetching on demand.
 - Pinyin style (radio buttons)
 - Font size (range slider)
 - Theme (dropdown: Light, Dark, Auto)

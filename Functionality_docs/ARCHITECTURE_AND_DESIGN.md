@@ -887,11 +887,12 @@ Clicking a word toggles a definition card:
 ### Provider switching
 
 When the user picks a new provider, `onProviderChange()` auto-fills
-everything from `PROVIDER_PRESETS`:
+everything from `PROVIDER_PRESETS` and, for Ollama, dynamically fetches
+the installed model list:
 
 ```typescript
-// popup.ts (lines 104-118)
-function onProviderChange(els: ReturnType<typeof getElements>): void {
+// popup.ts
+async function onProviderChange(els: ReturnType<typeof getElements>): Promise<void> {
   const provider = els.provider.value as LLMProvider;
   const preset = PROVIDER_PRESETS[provider];
 
@@ -904,13 +905,19 @@ function onProviderChange(els: ReturnType<typeof getElements>): void {
     els.apiKeyGroup.classList.add("hidden");
   }
 
-  populateModels(els.model, els.customModel, provider, preset.defaultModel);
+  await refreshModels(els, provider, preset.defaultModel);
 }
 ```
 
 - Base URL auto-fills from the preset
 - API key field shows/hides based on `requiresApiKey`
-- Model dropdown rebuilds from the preset's `models[]` array
+- Model dropdown: for **Ollama**, models are fetched live from the
+  `/v1/models` endpoint (with a "Loading models..." transient state);
+  if Ollama is unreachable, the dropdown falls back to the hardcoded
+  preset list and a warning is shown. For other providers, the static
+  `PROVIDER_PRESETS` list is used.
+- A refresh button (visible only for Ollama) lets the user re-fetch
+  models on demand
 - A "Custom..." sentinel option reveals a free-text input for arbitrary
   model names
 

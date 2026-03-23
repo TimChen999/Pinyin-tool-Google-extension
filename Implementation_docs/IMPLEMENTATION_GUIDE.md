@@ -369,7 +369,7 @@ export const PROVIDER_PRESETS: Record<LLMProvider, ProviderPreset> = {
     defaultModel: "qwen2.5:7b",
     apiStyle: "openai",
     requiresApiKey: false,
-    models: ["qwen2.5:7b", "llama3:8b", "mistral:7b", "gemma2:9b"],
+    models: ["qwen2.5:7b", "llama3:8b", "mistral:7b", "gemma2:9b"],  // fallback when Ollama is unreachable
   },
   custom: {
     baseUrl: "",
@@ -1656,7 +1656,7 @@ Build a settings form with:
 - **LLM Provider**: `<select id="provider">` with options: OpenAI, Google Gemini, Ollama (local), Custom. When the user selects a provider, JavaScript auto-fills the Base URL and Model fields from `PROVIDER_PRESETS` in `constants.ts`, and shows/hides the API Key field based on `requiresApiKey`.
 - **API Key**: `<input type="password" id="api-key">` with a show/hide toggle button. Hidden when the selected provider is Ollama (since it runs locally without auth).
 - **API Base URL**: `<input type="text" id="base-url">` with placeholder auto-filled from the selected provider preset. Editable for overrides.
-- **Model**: `<select id="model">` populated from the selected provider's `models` array, plus a "Custom..." option that shows a text input for a custom model name.
+- **Model**: `<select id="model">` populated from the selected provider's `models` array, plus a "Custom..." option that shows a text input for a custom model name. For Ollama, models are fetched dynamically from the local Ollama API (`GET /v1/models`) with a fallback to the hardcoded preset list. A `<button id="refresh-models">` (visible only for Ollama) lets the user re-fetch the model list on demand.
 - **Pinyin Style**: Three `<input type="radio" name="pinyin-style">` buttons for tone marks, tone numbers, no tones. Show an example next to each (e.g., "hàn yǔ", "han4 yu3", "han yu").
 - **Font Size**: `<input type="range" id="font-size" min="12" max="24" step="1">` with a label showing the current value.
 - **Theme**: `<select id="theme">` with options: Auto, Light, Dark.
@@ -1672,12 +1672,12 @@ Link `popup.css` and `popup.ts`.
    - Import `PROVIDER_PRESETS` and `DEFAULT_SETTINGS` from `constants.ts`.
    - Read settings from `chrome.storage.sync` via the `getSettings()` pattern (merge with `DEFAULT_SETTINGS`).
    - Populate all form fields with current values.
-   - Populate the model dropdown from `PROVIDER_PRESETS[settings.provider].models`.
+   - Populate the model dropdown via `refreshModels()`, which calls `fetchOllamaModels()` for the Ollama provider (falling back to `PROVIDER_PRESETS[settings.provider].models` if unreachable) and uses the static preset list for other providers.
 
 2. **On provider dropdown change**:
    - Look up the new provider's preset from `PROVIDER_PRESETS`.
    - Auto-fill the base URL field with `preset.baseUrl`.
-   - Repopulate the model dropdown with `preset.models`, selecting `preset.defaultModel`.
+   - Repopulate the model dropdown via `refreshModels()` -- for Ollama, this fetches live models from the API (showing "Loading models..." while in flight); for other providers, uses `preset.models`. Selects `preset.defaultModel`.
    - Show/hide the API Key field based on `preset.requiresApiKey`.
    - This ensures switching providers is a single-click experience.
 
@@ -1749,9 +1749,11 @@ describe("popup settings", () => {
     });
 
     it("auto-fills base URL when provider changes to Ollama", () => {
+      // Mock global.fetch to return a fake Ollama /v1/models response
       // Change provider dropdown to "ollama"
       // Verify base URL field is "http://localhost:11434/v1"
-      // Verify model dropdown contains Ollama models
+      // Verify model dropdown contains dynamically fetched Ollama models
+      // (falls back to hardcoded preset list when fetch rejects)
     });
 
     it("hides API key field when provider is Ollama", () => {

@@ -47,7 +47,10 @@ function buildPopupDOM(): void {
 
       <input type="text" id="base-url" />
 
-      <select id="model"></select>
+      <div class="input-row">
+        <select id="model"></select>
+        <button type="button" id="refresh-models" class="hidden">&#x21bb;</button>
+      </div>
       <input type="text" id="custom-model" class="hidden" />
 
       <label><input type="radio" name="pinyin-style" value="toneMarks" /></label>
@@ -112,15 +115,28 @@ async function loadPopup() {
 
 // ─── Tests ───────────────────────────────────────────────────────────
 
+/** Helper: builds a successful Ollama /models fetch mock response. */
+function ollamaModelsResponse(models: string[]) {
+  return Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve({ data: models.map((id) => ({ id })) }),
+  });
+}
+
 describe("popup settings", () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
     buildPopupDOM();
     chrome.storage.sync.get.mockImplementation(() => Promise.resolve({}));
     chrome.storage.sync.set.mockImplementation(() => Promise.resolve());
+    fetchSpy = vi.fn().mockRejectedValue(new Error("fetch not mocked"));
+    vi.stubGlobal("fetch", fetchSpy);
   });
 
   afterEach(() => {
     document.body.innerHTML = "";
+    vi.unstubAllGlobals();
   });
 
   // ─── Loading settings ──────────────────────────────────────────
@@ -196,8 +212,10 @@ describe("popup settings", () => {
       el.provider.dispatchEvent(new Event("change"));
 
       expect(el.baseUrl.value).toBe("http://localhost:11434/v1");
-      const modelOptions = Array.from(el.model.options).map((o) => o.value);
-      expect(modelOptions).toContain("qwen2.5:7b");
+      await vi.waitFor(() => {
+        const modelOptions = Array.from(el.model.options).map((o) => o.value);
+        expect(modelOptions).toContain("qwen2.5:7b");
+      });
     });
 
     it("hides API key field when provider is Ollama", async () => {
@@ -214,6 +232,10 @@ describe("popup settings", () => {
 
       el.provider.value = "ollama";
       el.provider.dispatchEvent(new Event("change"));
+      await vi.waitFor(() => {
+        expect(el.model.options.length).toBeGreaterThan(1);
+      });
+
       el.provider.value = "openai";
       el.provider.dispatchEvent(new Event("change"));
 
@@ -259,6 +281,9 @@ describe("popup settings", () => {
 
       el.provider.value = "ollama";
       el.provider.dispatchEvent(new Event("change"));
+      await vi.waitFor(() => {
+        expect(el.model.options.length).toBeGreaterThan(1);
+      });
       el.baseUrl.value = "http://localhost:11434/v1";
       el.saveBtn.click();
 
@@ -286,6 +311,9 @@ describe("popup settings", () => {
 
       el.provider.value = "ollama";
       el.provider.dispatchEvent(new Event("change"));
+      await vi.waitFor(() => {
+        expect(el.model.options.length).toBeGreaterThan(1);
+      });
       el.apiKey.value = "";
       el.baseUrl.value = "http://localhost:11434/v1";
       el.saveBtn.click();
@@ -313,6 +341,9 @@ describe("popup settings", () => {
 
       el.provider.value = "ollama";
       el.provider.dispatchEvent(new Event("change"));
+      await vi.waitFor(() => {
+        expect(el.model.options.length).toBeGreaterThan(1);
+      });
       el.baseUrl.value = "http://localhost:11434/v1";
       el.saveBtn.click();
 
@@ -367,6 +398,101 @@ describe("popup settings", () => {
       el.model.dispatchEvent(new Event("change"));
 
       expect(el.customModel.classList.contains("hidden")).toBe(true);
+    });
+  });
+
+  // ─── Dynamic Ollama model fetching ──────────────────────────────
+
+  describe("dynamic Ollama model fetching", () => {
+    it("populates dropdown with fetched models when Ollama is reachable", async () => {
+      fetchSpy.mockImplementation(() =>
+        ollamaModelsResponse(["deepseek-r1:8b", "qwen2.5:7b", "llama3:8b"]),
+      );
+
+      await loadPopup();
+
+      el.provider.value = "ollama";
+      el.provider.dispatchEvent(new Event("change"));
+
+      await vi.waitFor(() => {
+        const modelOptions = Array.from(el.model.options).map((o) => o.value);
+        expect(modelOptions).toContain("deepseek-r1:8b");
+        expect(modelOptions).toContain("qwen2.5:7b");
+        expect(modelOptions).toContain("llama3:8b");
+      });
+    });
+
+    it("falls back to hardcoded preset models when Ollama is unreachable", async () => {
+      await loadPopup();
+
+      el.provider.value = "ollama";
+      el.provider.dispatchEvent(new Event("change"));
+
+      await vi.waitFor(() => {
+        const modelOptions = Array.from(el.model.options).map((o) => o.value);
+        expect(modelOptions).toContain("qwen2.5:7b");
+        expect(modelOptions).toContain("__custom__");
+      });
+      expect(el.status.textContent).toContain("Could not reach Ollama");
+    });
+
+    it("fetches models on initial load when provider is Ollama", async () => {
+      fetchSpy.mockImplementation(() =>
+        ollamaModelsResponse(["phi3:mini", "gemma2:9b"]),
+      );
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({
+          provider: "ollama",
+          baseUrl: "http://localhost:11434/v1",
+          model: "phi3:mini",
+        }),
+      );
+
+      await loadPopup();
+
+      const modelOptions = Array.from(el.model.options).map((o) => o.value);
+      expect(modelOptions).toContain("phi3:mini");
+      expect(modelOptions).toContain("gemma2:9b");
+      expect(el.model.value).toBe("phi3:mini");
+    });
+
+    it("shows refresh button only for Ollama provider", async () => {
+      fetchSpy.mockImplementation(() =>
+        ollamaModelsResponse(["qwen2.5:7b"]),
+      );
+
+      await loadPopup();
+      const refreshBtn = document.getElementById("refresh-models") as HTMLButtonElement;
+
+      expect(refreshBtn.classList.contains("hidden")).toBe(true);
+
+      el.provider.value = "ollama";
+      el.provider.dispatchEvent(new Event("change"));
+      await vi.waitFor(() => {
+        expect(refreshBtn.classList.contains("hidden")).toBe(false);
+      });
+
+      el.provider.value = "openai";
+      el.provider.dispatchEvent(new Event("change"));
+      expect(refreshBtn.classList.contains("hidden")).toBe(true);
+    });
+
+    it("sorts fetched models alphabetically", async () => {
+      fetchSpy.mockImplementation(() =>
+        ollamaModelsResponse(["zephyr:7b", "alpha:3b", "mistral:7b"]),
+      );
+
+      await loadPopup();
+
+      el.provider.value = "ollama";
+      el.provider.dispatchEvent(new Event("change"));
+
+      await vi.waitFor(() => {
+        const modelOptions = Array.from(el.model.options)
+          .map((o) => o.value)
+          .filter((v) => v !== "__custom__");
+        expect(modelOptions).toEqual(["alpha:3b", "mistral:7b", "zephyr:7b"]);
+      });
     });
   });
 });

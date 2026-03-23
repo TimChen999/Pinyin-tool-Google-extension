@@ -63,7 +63,10 @@ function buildPopupDOM(): void {
 
       <input type="text" id="base-url" />
 
-      <select id="model"></select>
+      <div class="input-row">
+        <select id="model"></select>
+        <button type="button" id="refresh-models" class="hidden">&#x21bb;</button>
+      </div>
       <input type="text" id="custom-model" class="hidden" />
 
       <label><input type="radio" name="pinyin-style" value="toneMarks" /></label>
