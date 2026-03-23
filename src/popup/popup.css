@@ -171,6 +171,114 @@ input[type="range"] {
   color: #991b1b;
 }
 
+/* ─── Tab bar ────────────────────────────────────────────────── */
+
+.tab-bar {
+  display: flex;
+  gap: 0;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.tab-btn {
+  flex: 1;
+  padding: 8px;
+  border: none;
+  background: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: #6b7280;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.tab-btn.active {
+  color: #3b82f6;
+  border-bottom-color: #3b82f6;
+}
+
+.tab-btn:hover:not(.active) {
+  color: #374151;
+}
+
+/* ─── Vocab tab ──────────────────────────────────────────────── */
+
+.vocab-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  gap: 8px;
+}
+
+.vocab-controls select {
+  width: auto;
+  flex: 1;
+}
+
+.vocab-controls button {
+  padding: 4px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #f9fafb;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+  color: #374151;
+}
+
+.vocab-controls button:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
+.vocab-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.vocab-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 13px;
+}
+
+.vocab-chars {
+  font-weight: 600;
+  min-width: 48px;
+}
+
+.vocab-pinyin {
+  color: #6b7280;
+  min-width: 64px;
+}
+
+.vocab-def {
+  flex: 1;
+  color: #374151;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vocab-count {
+  color: #9ca3af;
+  font-size: 12px;
+  min-width: 20px;
+  text-align: right;
+}
+
+.vocab-empty {
+  color: #9ca3af;
+  font-size: 12px;
+  text-align: center;
+  padding: 24px 8px;
+}
+
 /* ─── Dark mode ──────────────────────────────────────────────── */
 
 @media (prefers-color-scheme: dark) {
@@ -232,5 +340,54 @@ input[type="range"] {
   #status.error {
     background: #7f1d1d;
     color: #fca5a5;
+  }
+
+  .tab-bar {
+    border-bottom-color: #374151;
+  }
+
+  .tab-btn {
+    color: #9ca3af;
+  }
+
+  .tab-btn.active {
+    color: #60a5fa;
+    border-bottom-color: #60a5fa;
+  }
+
+  .tab-btn:hover:not(.active) {
+    color: #d1d5db;
+  }
+
+  .vocab-controls button {
+    background: #374151;
+    border-color: #4b5563;
+    color: #d1d5db;
+  }
+
+  .vocab-controls button:hover {
+    background: #7f1d1d;
+    border-color: #fca5a5;
+    color: #fca5a5;
+  }
+
+  .vocab-row {
+    border-bottom-color: #374151;
+  }
+
+  .vocab-pinyin {
+    color: #9ca3af;
+  }
+
+  .vocab-def {
+    color: #d1d5db;
+  }
+
+  .vocab-count {
+    color: #6b7280;
+  }
+
+  .vocab-empty {
+    color: #6b7280;
   }
 }

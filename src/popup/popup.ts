@@ -16,6 +16,7 @@
 
 import { DEFAULT_SETTINGS, PROVIDER_PRESETS } from "../shared/constants";
 import type { ExtensionSettings, LLMProvider } from "../shared/types";
+import { getAllVocab, clearVocab } from "../background/vocab-store";
 
 // ─── DOM References ─────────────────────────────────────────────────
 
@@ -37,6 +38,12 @@ function getElements() {
     llmEnabled: document.getElementById("llm-enabled") as HTMLInputElement,
     saveBtn: document.getElementById("save-btn") as HTMLButtonElement,
     status: document.getElementById("status") as HTMLDivElement,
+    tabButtons: document.querySelectorAll<HTMLButtonElement>(".tab-btn"),
+    tabSettings: document.getElementById("tab-settings") as HTMLDivElement,
+    tabVocab: document.getElementById("tab-vocab") as HTMLDivElement,
+    vocabSort: document.getElementById("vocab-sort") as HTMLSelectElement,
+    vocabList: document.getElementById("vocab-list") as HTMLDivElement,
+    clearVocabBtn: document.getElementById("clear-vocab") as HTMLButtonElement,
   };
 }
 
@@ -173,6 +180,38 @@ function showStatus(
   }, 2000);
 }
 
+// ─── Vocab List ─────────────────────────────────────────────────────
+
+async function renderVocabList(els: ReturnType<typeof getElements>): Promise<void> {
+  const entries = await getAllVocab();
+  const sortBy = els.vocabSort.value;
+
+  if (sortBy === "recent") {
+    entries.sort((a, b) => b.lastSeen - a.lastSeen);
+  } else {
+    entries.sort((a, b) => b.count - a.count);
+  }
+
+  els.vocabList.innerHTML = "";
+
+  if (entries.length === 0) {
+    els.vocabList.innerHTML =
+      '<div class="vocab-empty">No words recorded yet. Select Chinese text on any page to start building your list.</div>';
+    return;
+  }
+
+  for (const entry of entries) {
+    const row = document.createElement("div");
+    row.className = "vocab-row";
+    row.innerHTML =
+      `<span class="vocab-chars">${entry.chars}</span>` +
+      `<span class="vocab-pinyin">${entry.pinyin}</span>` +
+      `<span class="vocab-def">${entry.definition}</span>` +
+      `<span class="vocab-count">${entry.count}</span>`;
+    els.vocabList.appendChild(row);
+  }
+}
+
 // ─── Initialization ─────────────────────────────────────────────────
 
 /**
@@ -237,6 +276,32 @@ export async function initPopup(): Promise<void> {
     const values = readFormValues(els);
     await chrome.storage.sync.set(values);
     showStatus(els.status, "Settings saved.", "success");
+  });
+
+  // ─── Tab switching ───────────────────────────────────────────
+
+  els.tabButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      els.tabButtons.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+
+      const tab = btn.dataset.tab;
+      els.tabSettings.classList.toggle("hidden", tab !== "settings");
+      els.tabVocab.classList.toggle("hidden", tab !== "vocab");
+
+      if (tab === "vocab") {
+        renderVocabList(els);
+      }
+    });
+  });
+
+  els.vocabSort.addEventListener("change", () => renderVocabList(els));
+
+  els.clearVocabBtn.addEventListener("click", async () => {
+    if (confirm("Clear all recorded words?")) {
+      await clearVocab();
+      renderVocabList(els);
+    }
   });
 }
 

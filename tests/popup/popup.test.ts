@@ -15,47 +15,70 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { PROVIDER_PRESETS, DEFAULT_SETTINGS } from "../../src/shared/constants";
 
+vi.mock("../../src/background/vocab-store", () => ({
+  getAllVocab: vi.fn().mockResolvedValue([]),
+  clearVocab: vi.fn().mockResolvedValue(undefined),
+}));
+
 // ─── DOM scaffold ────────────────────────────────────────────────────
 
 /** Injects the minimal DOM elements that popup.ts querySelector expects. */
 function buildPopupDOM(): void {
   document.body.innerHTML = `
-    <select id="provider">
-      <option value="openai">OpenAI</option>
-      <option value="gemini">Google Gemini</option>
-      <option value="ollama">Ollama (local)</option>
-      <option value="custom">Custom</option>
-    </select>
-
-    <div id="api-key-group">
-      <div class="input-row">
-        <input type="password" id="api-key" />
-        <button id="toggle-key">Show</button>
-      </div>
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="settings">Settings</button>
+      <button class="tab-btn" data-tab="vocab">Vocab</button>
     </div>
 
-    <input type="text" id="base-url" />
+    <div id="tab-settings">
+      <select id="provider">
+        <option value="openai">OpenAI</option>
+        <option value="gemini">Google Gemini</option>
+        <option value="ollama">Ollama (local)</option>
+        <option value="custom">Custom</option>
+      </select>
 
-    <select id="model"></select>
-    <input type="text" id="custom-model" class="hidden" />
+      <div id="api-key-group">
+        <div class="input-row">
+          <input type="password" id="api-key" />
+          <button id="toggle-key">Show</button>
+        </div>
+      </div>
 
-    <label><input type="radio" name="pinyin-style" value="toneMarks" /></label>
-    <label><input type="radio" name="pinyin-style" value="toneNumbers" /></label>
-    <label><input type="radio" name="pinyin-style" value="none" /></label>
+      <input type="text" id="base-url" />
 
-    <input type="range" id="font-size" min="12" max="24" step="1" />
-    <span id="font-size-label">16</span>
+      <select id="model"></select>
+      <input type="text" id="custom-model" class="hidden" />
 
-    <select id="theme">
-      <option value="auto">Auto</option>
-      <option value="light">Light</option>
-      <option value="dark">Dark</option>
-    </select>
+      <label><input type="radio" name="pinyin-style" value="toneMarks" /></label>
+      <label><input type="radio" name="pinyin-style" value="toneNumbers" /></label>
+      <label><input type="radio" name="pinyin-style" value="none" /></label>
 
-    <input type="checkbox" id="llm-enabled" />
+      <input type="range" id="font-size" min="12" max="24" step="1" />
+      <span id="font-size-label">16</span>
 
-    <button id="save-btn">Save Settings</button>
-    <div id="status"></div>
+      <select id="theme">
+        <option value="auto">Auto</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+
+      <input type="checkbox" id="llm-enabled" />
+
+      <button id="save-btn">Save Settings</button>
+      <div id="status"></div>
+    </div>
+
+    <div id="tab-vocab" class="hidden">
+      <div class="vocab-controls">
+        <select id="vocab-sort">
+          <option value="frequency">Most frequent</option>
+          <option value="recent">Most recent</option>
+        </select>
+        <button type="button" id="clear-vocab">Clear List</button>
+      </div>
+      <div id="vocab-list"></div>
+    </div>
   `;
 }
 
