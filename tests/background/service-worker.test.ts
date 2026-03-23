@@ -2,6 +2,23 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DEFAULT_SETTINGS } from "../../src/shared/constants";
 import type { PinyinRequest, PinyinResponseLocal } from "../../src/shared/types";
 
+vi.mock("../../src/background/vocab-store", () => ({
+  recordWords: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock("../../src/background/cache", () => ({
+  hashText: vi.fn(() => Promise.resolve("mock-hash")),
+  getFromCache: vi.fn(() => Promise.resolve(null)),
+  saveToCache: vi.fn(() => Promise.resolve()),
+  evictExpiredEntries: vi.fn(() => Promise.resolve()),
+  clearCache: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock("../../src/background/llm-client", () => ({
+  queryLLM: vi.fn(() => Promise.resolve(null)),
+  validateLLMResponse: vi.fn(() => true),
+}));
+
 /**
  * vitest-chrome-mv3 does not include chrome.commands in its generated
  * mocks. We patch it in before each test so the service worker's
@@ -154,6 +171,81 @@ describe("service-worker", () => {
       expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(7, {
         type: "COMMAND_TRIGGER",
       });
+    });
+  });
+
+  describe("vocab recording", () => {
+    const LLM_WORDS = [
+      { chars: "你好", pinyin: "nǐ hǎo", definition: "hello" },
+    ];
+    const LLM_RESULT = { words: LLM_WORDS, translation: "Hello" };
+
+    it("calls recordWords on cache hit", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ llmEnabled: true, apiKey: "test-key" }),
+      );
+
+      const { getFromCache } = await import("../../src/background/cache");
+      const { recordWords } = await import("../../src/background/vocab-store");
+      (getFromCache as ReturnType<typeof vi.fn>).mockResolvedValue(LLM_RESULT);
+
+      await loadServiceWorker();
+
+      const sendResponse = vi.fn();
+      chrome.runtime.onMessage.callListeners(
+        SAMPLE_REQUEST,
+        { tab: { id: 1 } },
+        sendResponse,
+      );
+
+      await vi.waitFor(() => expect(recordWords).toHaveBeenCalled());
+      expect(recordWords).toHaveBeenCalledWith(LLM_WORDS);
+    });
+
+    it("calls recordWords after successful LLM response", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ llmEnabled: true, apiKey: "test-key" }),
+      );
+
+      const { getFromCache } = await import("../../src/background/cache");
+      const { queryLLM } = await import("../../src/background/llm-client");
+      const { recordWords } = await import("../../src/background/vocab-store");
+      (getFromCache as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+      (queryLLM as ReturnType<typeof vi.fn>).mockResolvedValue(LLM_RESULT);
+
+      await loadServiceWorker();
+
+      const sendResponse = vi.fn();
+      chrome.runtime.onMessage.callListeners(
+        SAMPLE_REQUEST,
+        { tab: { id: 1 } },
+        sendResponse,
+      );
+
+      await vi.waitFor(() => expect(recordWords).toHaveBeenCalled());
+      expect(recordWords).toHaveBeenCalledWith(LLM_WORDS);
+    });
+
+    it("does not call recordWords when LLM is disabled", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ llmEnabled: false }),
+      );
+
+      const { recordWords } = await import("../../src/background/vocab-store");
+      (recordWords as ReturnType<typeof vi.fn>).mockClear();
+
+      await loadServiceWorker();
+
+      const sendResponse = vi.fn();
+      chrome.runtime.onMessage.callListeners(
+        SAMPLE_REQUEST,
+        { tab: { id: 1 } },
+        sendResponse,
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      await new Promise((r) => setTimeout(r, 50));
+      expect(recordWords).not.toHaveBeenCalled();
     });
   });
 

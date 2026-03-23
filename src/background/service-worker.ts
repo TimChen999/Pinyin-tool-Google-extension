@@ -18,6 +18,7 @@
 import { convertToPinyin } from "./pinyin-service";
 import { queryLLM } from "./llm-client";
 import { hashText, getFromCache, saveToCache, evictExpiredEntries } from "./cache";
+import { recordWords } from "./vocab-store";
 import {
   DEFAULT_SETTINGS,
   PROVIDER_PRESETS,
@@ -122,6 +123,7 @@ async function handleLLMPath(
       words: cached.words,
       translation: cached.translation,
     });
+    recordWords(cached.words);
     return;
   }
 
@@ -143,6 +145,7 @@ async function handleLLMPath(
       words: result.words,
       translation: result.translation,
     });
+    recordWords(result.words);
   } else {
     chrome.tabs.sendMessage(tabId, {
       type: "PINYIN_ERROR",
