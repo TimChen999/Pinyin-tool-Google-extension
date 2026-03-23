@@ -50,6 +50,20 @@ export interface WordData {
 }
 
 /**
+ * A word recorded by the vocab tracker. Extends the core WordData fields
+ * with frequency and timestamp metadata.
+ * (VOCAB_SPEC.md Section 2 "Data Model")
+ */
+export interface VocabEntry {
+  chars: string;
+  pinyin: string;
+  definition: string;
+  count: number;
+  firstSeen: number;
+  lastSeen: number;
+}
+
+/**
  * Content script -> Service worker message.
  * Sent on mouseup when the user selects Chinese text.
  * Carries the selected text, surrounding paragraph context for the LLM,

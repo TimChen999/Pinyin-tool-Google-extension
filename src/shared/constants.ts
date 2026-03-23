@@ -84,6 +84,10 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
 export const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 export const MAX_CACHE_ENTRIES = 5000;
 
+// ─── Vocab Store Configuration ────────────────────────────────────
+/** Maximum number of words to store in the vocab list. Least-frequent entries are dropped first. */
+export const MAX_VOCAB_ENTRIES = 10_000;
+
 // ─── LLM Request Configuration ────────────────────────────────────
 /** Abort controller timeout for each LLM fetch call. (SPEC.md Section 6) */
 export const LLM_TIMEOUT_MS = 10_000; // 10 seconds
