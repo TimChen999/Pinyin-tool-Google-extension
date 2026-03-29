@@ -10,7 +10,8 @@
     "test:watch": "vitest --watch"
   },
   "dependencies": {
-    "pinyin-pro": "^3"
+    "pinyin-pro": "^3",
+    "tesseract.js": "^5"
   },
   "devDependencies": {
     "typescript": "^5",

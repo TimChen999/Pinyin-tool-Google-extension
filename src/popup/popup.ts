@@ -45,6 +45,7 @@ function getElements() {
     vocabList: document.getElementById("vocab-list") as HTMLDivElement,
     clearVocabBtn: document.getElementById("clear-vocab") as HTMLButtonElement,
     refreshModels: document.getElementById("refresh-models") as HTMLButtonElement,
+    ocrBtn: document.getElementById("ocr-btn") as HTMLButtonElement,
   };
 }
 
@@ -310,6 +311,13 @@ export async function initPopup(): Promise<void> {
   }
 
   await refreshModels(els, settings.provider, settings.model);
+
+  // ─── OCR trigger ─────────────────────────────────────────────
+
+  els.ocrBtn.addEventListener("click", () => {
+    chrome.runtime.sendMessage({ type: "OCR_START" });
+    window.close();
+  });
 
   // ─── Event listeners ──────────────────────────────────────────
 

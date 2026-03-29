@@ -29,6 +29,7 @@ import {
   showTruncationNotice,
   dismissOverlay,
 } from "./overlay";
+import { startOCRSelection } from "./ocr-selection";
 
 // ─── Module state ──────────────────────────────────────────────────
 
@@ -37,6 +38,9 @@ let currentRequestId = 0;
 
 /** Cached theme setting so each overlay doesn't need a storage read. */
 let cachedTheme: Theme = "auto";
+
+/** Viewport rect from the most recent OCR area selection, awaiting capture result. */
+let pendingOCRRect: { x: number; y: number; width: number; height: number } | null = null;
 
 // ─── Debounce utility ──────────────────────────────────────────────
 
@@ -161,6 +165,14 @@ chrome.runtime.onMessage.addListener(
       case "COMMAND_TRIGGER":
         handleCommandTrigger();
         break;
+
+      case "OCR_START_SELECTION":
+        handleOCRStartSelection();
+        break;
+
+      case "OCR_CAPTURE_RESULT":
+        handleOCRCaptureResult(message.dataUrl);
+        break;
     }
   },
 );
@@ -204,6 +216,103 @@ function getSelectionRect(selection: Selection | null): DOMRect {
     return selection.getRangeAt(0).getBoundingClientRect();
   }
   return new DOMRect(window.innerWidth / 2 - 100, window.innerHeight / 3, 200, 20);
+}
+
+// ─── OCR handlers ──────────────────────────────────────────────
+
+async function handleOCRStartSelection(): Promise<void> {
+  const rect = await startOCRSelection();
+  if (!rect) return;
+
+  pendingOCRRect = rect;
+  chrome.runtime.sendMessage({
+    type: "OCR_CAPTURE_REQUEST",
+    rect,
+  });
+}
+
+async function handleOCRCaptureResult(dataUrl: string): Promise<void> {
+  const rect = pendingOCRRect;
+  pendingOCRRect = null;
+  if (!rect) return;
+
+  const loading = document.createElement("div");
+  loading.className = "hg-ocr-loading";
+  loading.textContent = "Recognizing text\u2026";
+  loading.style.left = `${rect.x + rect.width / 2 - 70}px`;
+  loading.style.top = `${rect.y + rect.height / 2 - 14}px`;
+  document.body.appendChild(loading);
+
+  try {
+    const croppedCanvas = await cropScreenshot(dataUrl, rect);
+    const text = await runOCR(croppedCanvas);
+
+    loading.remove();
+
+    if (!text) {
+      showBriefError("No Chinese text detected in selected area");
+      return;
+    }
+
+    const selectionRect = new DOMRect(rect.x, rect.y, rect.width, rect.height);
+    processSelection(text, selectionRect, text);
+  } catch (err) {
+    loading.remove();
+    showBriefError("OCR failed: " + (err instanceof Error ? err.message : String(err)));
+  }
+}
+
+function cropScreenshot(
+  dataUrl: string,
+  rect: { x: number; y: number; width: number; height: number },
+): Promise<HTMLCanvasElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const dpr = window.devicePixelRatio;
+      const cropX = rect.x * dpr;
+      const cropY = rect.y * dpr;
+      const cropW = rect.width * dpr;
+      const cropH = rect.height * dpr;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = cropW;
+      canvas.height = cropH;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("Could not get canvas context"));
+        return;
+      }
+      ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+      resolve(canvas);
+    };
+    img.onerror = () => reject(new Error("Failed to load screenshot"));
+    img.src = dataUrl;
+  });
+}
+
+async function runOCR(canvas: HTMLCanvasElement): Promise<string | null> {
+  const { createWorker } = await import("tesseract.js");
+  const worker = await createWorker("chi_sim");
+  try {
+    const result = await worker.recognize(canvas);
+    let text = result.data.text.trim().replace(/\n+/g, " ");
+    if (!containsChinese(text)) return null;
+    return text;
+  } finally {
+    await worker.terminate();
+  }
+}
+
+function showBriefError(message: string): void {
+  const el = document.createElement("div");
+  el.className = "hg-ocr-loading";
+  el.textContent = message;
+  el.style.left = "50%";
+  el.style.top = "40%";
+  el.style.transform = "translateX(-50%)";
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
 }
 
 // ─── Dismiss handlers ──────────────────────────────────────────────

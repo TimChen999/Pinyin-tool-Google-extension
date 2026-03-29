@@ -161,4 +161,8 @@ export type ExtensionMessage =
   | PinyinResponseLLM
   | PinyinError
   | { type: "CONTEXT_MENU_TRIGGER"; text: string }
-  | { type: "COMMAND_TRIGGER" };
+  | { type: "COMMAND_TRIGGER" }
+  | { type: "OCR_START" }
+  | { type: "OCR_START_SELECTION" }
+  | { type: "OCR_CAPTURE_REQUEST"; rect: { x: number; y: number; width: number; height: number } }
+  | { type: "OCR_CAPTURE_RESULT"; dataUrl: string };

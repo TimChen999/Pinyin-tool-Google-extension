@@ -168,6 +168,53 @@ async function handleLLMPath(
   }
 }
 
+// ─── OCR Message Handling ──────────────────────────────────────────
+
+/**
+ * Handles OCR_START (from popup) and OCR_CAPTURE_REQUEST (from content
+ * script). These are separate from the PINYIN_REQUEST listener because
+ * they follow a different async pattern and don't use sendResponse.
+ */
+chrome.runtime.onMessage.addListener(
+  (message: { type: string }, sender: chrome.runtime.MessageSender) => {
+    if (message.type === "OCR_START") {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const tabId = tabs[0]?.id;
+        if (tabId) {
+          chrome.tabs.sendMessage(tabId, { type: "OCR_START_SELECTION" });
+        }
+      });
+      return;
+    }
+
+    if (message.type === "OCR_CAPTURE_REQUEST") {
+      const tabId = sender.tab?.id;
+      if (!tabId) return;
+
+      chrome.tabs.captureVisibleTab(
+        null as unknown as number,
+        { format: "png" },
+        (dataUrl) => {
+          if (chrome.runtime.lastError || !dataUrl) {
+            chrome.tabs.sendMessage(tabId, {
+              type: "PINYIN_ERROR",
+              error: chrome.runtime.lastError?.message
+                ?? "Failed to capture screenshot",
+              phase: "local",
+            });
+            return;
+          }
+          chrome.tabs.sendMessage(tabId, {
+            type: "OCR_CAPTURE_RESULT",
+            dataUrl,
+          });
+        },
+      );
+      return;
+    }
+  },
+);
+
 // ─── Context Menu ──────────────────────────────────────────────────
 
 /**
