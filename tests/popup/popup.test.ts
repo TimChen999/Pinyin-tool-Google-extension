@@ -67,10 +67,14 @@ function buildPopupDOM(): void {
       </select>
 
       <input type="checkbox" id="llm-enabled" />
+      <input type="checkbox" id="tts-enabled" />
 
       <button id="save-btn">Save Settings</button>
       <div id="status"></div>
     </div>
+
+    <button id="ocr-btn">Select text from image</button>
+    <button id="reader-btn">Open Reader</button>
 
     <div id="tab-vocab" class="hidden">
       <div class="vocab-controls">
@@ -148,7 +152,7 @@ describe("popup settings", () => {
           provider: "gemini",
           apiKey: "my-gemini-key-12345",
           baseUrl: "https://generativelanguage.googleapis.com",
-          model: "gemini-2.0-flash",
+          model: "gemini-2.5-flash",
           pinyinStyle: "toneNumbers",
           fontSize: 20,
           theme: "dark",
@@ -161,7 +165,7 @@ describe("popup settings", () => {
       expect(el.provider.value).toBe("gemini");
       expect(el.apiKey.value).toBe("my-gemini-key-12345");
       expect(el.baseUrl.value).toBe("https://generativelanguage.googleapis.com");
-      expect(el.model.value).toBe("gemini-2.0-flash");
+      expect(el.model.value).toBe("gemini-2.5-flash");
       expect(el.pinyinRadio("toneNumbers").checked).toBe(true);
       expect(el.fontSize.value).toBe("20");
       expect(el.fontSizeLabel.textContent).toBe("20");
@@ -202,7 +206,7 @@ describe("popup settings", () => {
 
       expect(el.baseUrl.value).toBe(PROVIDER_PRESETS.gemini.baseUrl);
       const modelOptions = Array.from(el.model.options).map((o) => o.value);
-      expect(modelOptions).toContain("gemini-2.0-flash");
+      expect(modelOptions).toContain("gemini-2.5-flash");
     });
 
     it("auto-fills base URL when provider changes to Ollama", async () => {

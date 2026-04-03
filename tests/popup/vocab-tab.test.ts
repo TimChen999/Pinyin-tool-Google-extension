@@ -83,10 +83,14 @@ function buildPopupDOM(): void {
       </select>
 
       <input type="checkbox" id="llm-enabled" />
+      <input type="checkbox" id="tts-enabled" />
 
       <button id="save-btn">Save Settings</button>
       <div id="status"></div>
     </div>
+
+    <button id="ocr-btn">Select text from image</button>
+    <button id="reader-btn">Open Reader</button>
 
     <div id="tab-vocab" class="hidden">
       <div class="vocab-controls">

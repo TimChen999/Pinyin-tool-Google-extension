@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pinyin Tool Reader</title>
+  <link rel="stylesheet" href="reader.css" />
+</head>
+<body data-theme="light">
+
+  <!-- ── Top bar ──────────────────────────────────────────────── -->
+  <header class="reader-toolbar">
+    <button id="toc-toggle" class="toolbar-btn" title="Toggle table of contents" aria-label="Toggle table of contents">&#9776;</button>
+    <div class="toolbar-title">
+      <span id="book-title">Pinyin Tool Reader</span>
+      <span id="book-author"></span>
+    </div>
+    <button id="settings-toggle" class="toolbar-btn" title="Reader settings" aria-label="Reader settings">&#9881;</button>
+  </header>
+
+  <!-- ── Main layout ──────────────────────────────────────────── -->
+  <div class="reader-body">
+
+    <!-- Sidebar: TOC -->
+    <aside id="toc-sidebar" class="toc-sidebar">
+      <nav id="toc-list" class="toc-list" aria-label="Table of contents"></nav>
+    </aside>
+
+    <!-- Content area -->
+    <main class="reader-main">
+
+      <!-- Landing state (no file loaded) -->
+      <div id="landing" class="landing">
+        <h2>Pinyin Tool Reader</h2>
+        <div id="drop-zone" class="drop-zone">
+          <p>Drag &amp; drop an EPUB file here to start reading</p>
+          <span class="drop-zone-divider">&mdash; or &mdash;</span>
+          <label class="file-picker-btn">
+            Choose File
+            <input type="file" id="file-input" accept=".epub" hidden />
+          </label>
+        </div>
+        <p class="supported-formats">Supported formats: .epub</p>
+        <div id="recent-files" class="recent-files">
+          <h3>Recent Files</h3>
+          <div id="recent-list"></div>
+        </div>
+      </div>
+
+      <!-- Reader content (hidden until a file loads) -->
+      <div id="reader-content" class="reader-content hidden"></div>
+    </main>
+  </div>
+
+  <!-- ── Bottom bar ───────────────────────────────────────────── -->
+  <footer id="reader-footer" class="reader-footer hidden">
+    <button id="prev-btn" class="nav-btn" title="Previous chapter" aria-label="Previous chapter">&#9664; Prev</button>
+    <div class="progress-area">
+      <div class="progress-bar-track">
+        <div id="progress-bar" class="progress-bar-fill" style="width: 0%"></div>
+      </div>
+      <span id="chapter-indicator">Chapter 0 of 0</span>
+    </div>
+    <button id="next-btn" class="nav-btn" title="Next chapter" aria-label="Next chapter">Next &#9654;</button>
+  </footer>
+
+  <!-- ── Settings panel (overlay) ─────────────────────────────── -->
+  <div id="settings-panel" class="settings-panel hidden">
+    <div class="settings-inner">
+      <h3>Reader Settings</h3>
+
+      <div class="setting-group">
+        <label for="setting-font-size">Font Size: <span id="font-size-value">18</span>px</label>
+        <input type="range" id="setting-font-size" min="14" max="28" step="1" value="18" />
+      </div>
+
+      <div class="setting-group">
+        <label for="setting-font-family">Font Family</label>
+        <select id="setting-font-family">
+          <option value="system">System default</option>
+          <option value="serif">Serif</option>
+          <option value="sans-serif">Sans-serif</option>
+          <option value="noto-sans">Noto Sans SC</option>
+          <option value="noto-serif">Noto Serif SC</option>
+        </select>
+      </div>
+
+      <div class="setting-group">
+        <label for="setting-line-spacing">Line Spacing: <span id="line-spacing-value">1.8</span></label>
+        <input type="range" id="setting-line-spacing" min="1.4" max="2.2" step="0.1" value="1.8" />
+      </div>
+
+      <div class="setting-group">
+        <label for="setting-theme">Theme</label>
+        <select id="setting-theme">
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+          <option value="sepia">Sepia</option>
+          <option value="auto">Auto</option>
+        </select>
+      </div>
+
+      <div class="setting-group">
+        <label for="setting-reading-mode">Reading Mode</label>
+        <select id="setting-reading-mode">
+          <option value="scroll">Continuous Scroll</option>
+          <option value="paginated">Paginated</option>
+        </select>
+      </div>
+
+      <div class="setting-group checkbox-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="setting-pinyin" checked />
+          Enable pinyin overlay
+        </label>
+      </div>
+
+      <button id="settings-close" class="settings-close-btn">Close</button>
+    </div>
+  </div>
+
+  <script type="module" src="reader.ts"></script>
+</body>
+</html>

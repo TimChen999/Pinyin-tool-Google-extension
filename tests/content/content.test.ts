@@ -215,6 +215,7 @@ describe("content script", () => {
         [{ chars: "你好", pinyin: "nǐ hǎo" }],
         expect.any(Object),
         "auto",
+        true,
       );
     });
 
@@ -232,6 +233,7 @@ describe("content script", () => {
       expect(mockUpdateOverlay).toHaveBeenCalledWith(
         [{ chars: "你好", pinyin: "nǐ hǎo", definition: "hello" }],
         "Hello",
+        true,
       );
     });
 

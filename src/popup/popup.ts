@@ -47,6 +47,7 @@ function getElements() {
     clearVocabBtn: document.getElementById("clear-vocab") as HTMLButtonElement,
     refreshModels: document.getElementById("refresh-models") as HTMLButtonElement,
     ocrBtn: document.getElementById("ocr-btn") as HTMLButtonElement,
+    readerBtn: document.getElementById("reader-btn") as HTMLButtonElement,
   };
 }
 
@@ -319,6 +320,13 @@ export async function initPopup(): Promise<void> {
 
   els.ocrBtn.addEventListener("click", () => {
     chrome.runtime.sendMessage({ type: "OCR_START" });
+    window.close();
+  });
+
+  els.readerBtn.addEventListener("click", () => {
+    chrome.tabs.create({
+      url: chrome.runtime.getURL("src/reader/reader.html"),
+    });
     window.close();
   });
 

@@ -10,16 +10,17 @@
     "test:watch": "vitest --watch"
   },
   "dependencies": {
+    "epubjs": "^0.3.93",
     "pinyin-pro": "^3",
     "tesseract.js": "^5"
   },
   "devDependencies": {
-    "typescript": "^5",
     "@types/chrome": "^0",
+    "jsdom": "^26",
+    "typescript": "^5",
     "vite": "^6",
     "vite-plugin-web-extension": "^4",
     "vitest": "^4",
-    "vitest-chrome-mv3": "^1",
-    "jsdom": "^26"
+    "vitest-chrome-mv3": "^1"
   }
 }

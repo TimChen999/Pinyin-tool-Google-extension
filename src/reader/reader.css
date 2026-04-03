@@ -1,0 +1,246 @@
+/* ── Reset & base ───────────────────────────────────────────── */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+body { display: flex; flex-direction: column; overflow: hidden; }
+
+.hidden { display: none !important; }
+
+/* ── Theme colours ──────────────────────────────────────────── */
+
+body[data-theme="light"] {
+  --bg: #ffffff; --text: #1a1a1a; --pinyin: #6b7280;
+  --accent: #3b82f6; --surface: #f3f4f6; --border: #e5e7eb;
+  --sidebar-bg: #f9fafb; --toolbar-bg: #ffffff;
+}
+body[data-theme="dark"] {
+  --bg: #1a1a2e; --text: #e2e8f0; --pinyin: #94a3b8;
+  --accent: #60a5fa; --surface: #262640; --border: #374151;
+  --sidebar-bg: #16162a; --toolbar-bg: #1e1e38;
+}
+body[data-theme="sepia"] {
+  --bg: #f4ecd8; --text: #5c4b37; --pinyin: #8b7355;
+  --accent: #b8860b; --surface: #ede4cf; --border: #d4c8ab;
+  --sidebar-bg: #efe6d0; --toolbar-bg: #f4ecd8;
+}
+
+body { background: var(--bg); color: var(--text); }
+
+/* ── Toolbar ────────────────────────────────────────────────── */
+
+.reader-toolbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 16px;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0; z-index: 10;
+}
+
+.toolbar-btn {
+  background: none; border: 1px solid var(--border); border-radius: 6px;
+  padding: 6px 10px; cursor: pointer; font-size: 18px;
+  color: var(--text); transition: background 0.15s;
+}
+.toolbar-btn:hover { background: var(--surface); }
+
+.toolbar-title {
+  flex: 1; text-align: center; overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis;
+}
+.toolbar-title #book-title { font-weight: 600; }
+.toolbar-title #book-author {
+  margin-left: 8px; font-size: 0.85em; color: var(--pinyin);
+}
+
+/* ── Main body layout ───────────────────────────────────────── */
+
+.reader-body {
+  display: flex; flex: 1; overflow: hidden;
+}
+
+/* ── TOC sidebar ────────────────────────────────────────────── */
+
+.toc-sidebar {
+  width: 240px; flex-shrink: 0;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  overflow-y: auto; padding: 12px 0;
+  transition: margin-left 0.25s ease;
+}
+.toc-sidebar.collapsed { margin-left: -240px; }
+
+.toc-list a {
+  display: block; padding: 6px 16px; color: var(--text);
+  text-decoration: none; font-size: 0.9em;
+  border-left: 3px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+.toc-list a:hover { background: var(--surface); }
+.toc-list a.active {
+  border-left-color: var(--accent); font-weight: 600;
+}
+.toc-list a[data-level="1"] { padding-left: 32px; }
+.toc-list a[data-level="2"] { padding-left: 48px; }
+
+/* ── Reader main area ───────────────────────────────────────── */
+
+.reader-main {
+  flex: 1; overflow-y: auto; display: flex;
+  flex-direction: column; align-items: center;
+}
+
+.reader-content {
+  width: 100%; max-width: 720px; padding: 24px 32px;
+  flex: 1; min-height: 0;
+}
+
+/* epub.js iframe fills its container */
+.reader-content iframe { border: none; }
+
+/* ── Landing state ──────────────────────────────────────────── */
+
+.landing {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 24px;
+  padding: 48px 24px; text-align: center; flex: 1;
+}
+.landing h2 { font-size: 1.6em; font-weight: 700; }
+
+.drop-zone {
+  border: 2px dashed var(--border); border-radius: 12px;
+  padding: 48px 40px; max-width: 420px; width: 100%;
+  transition: border-color 0.2s, background 0.2s;
+}
+.drop-zone.drag-over {
+  border-color: var(--accent); background: rgba(59,130,246,0.06);
+}
+.drop-zone p { margin-bottom: 12px; color: var(--pinyin); }
+.drop-zone-divider { display: block; margin: 12px 0; color: var(--pinyin); font-size: 0.85em; }
+
+.file-picker-btn {
+  display: inline-block; padding: 10px 24px; border-radius: 8px;
+  background: var(--accent); color: #fff; font-weight: 600;
+  cursor: pointer; transition: opacity 0.15s;
+}
+.file-picker-btn:hover { opacity: 0.9; }
+
+.supported-formats { font-size: 0.85em; color: var(--pinyin); }
+
+/* ── Recent files ───────────────────────────────────────────── */
+
+.recent-files {
+  max-width: 420px; width: 100%; text-align: left;
+}
+.recent-files h3 {
+  font-size: 0.95em; margin-bottom: 8px; color: var(--pinyin);
+}
+
+.recent-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border-radius: 8px; cursor: pointer;
+  transition: background 0.15s;
+}
+.recent-item:hover { background: var(--surface); }
+.recent-item-icon { font-size: 1.3em; }
+.recent-item-info { flex: 1; overflow: hidden; }
+.recent-item-title {
+  font-weight: 600; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.recent-item-meta { font-size: 0.8em; color: var(--pinyin); }
+
+/* ── Bottom bar ─────────────────────────────────────────────── */
+
+.reader-footer {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 16px;
+  background: var(--toolbar-bg);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.nav-btn {
+  background: none; border: 1px solid var(--border); border-radius: 6px;
+  padding: 6px 16px; cursor: pointer; font-size: 0.9em;
+  color: var(--text); transition: background 0.15s;
+  white-space: nowrap;
+}
+.nav-btn:hover { background: var(--surface); }
+
+.progress-area {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; gap: 4px;
+}
+
+.progress-bar-track {
+  width: 100%; height: 4px; border-radius: 2px;
+  background: var(--surface); overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%; background: var(--accent);
+  border-radius: 2px; transition: width 0.3s ease;
+}
+
+#chapter-indicator { font-size: 0.8em; color: var(--pinyin); }
+
+/* ── Settings panel ─────────────────────────────────────────── */
+
+.settings-panel {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.4);
+}
+
+.settings-inner {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 12px; padding: 24px 28px;
+  width: 360px; max-height: 80vh; overflow-y: auto;
+}
+.settings-inner h3 { margin-bottom: 16px; }
+
+.setting-group {
+  margin-bottom: 14px;
+}
+.setting-group label { display: block; margin-bottom: 4px; font-size: 0.9em; }
+.setting-group select,
+.setting-group input[type="range"] { width: 100%; }
+
+.setting-group select {
+  padding: 6px 8px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--surface); color: var(--text);
+}
+
+.checkbox-group { display: flex; align-items: center; }
+.checkbox-label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+
+.settings-close-btn {
+  margin-top: 12px; width: 100%; padding: 8px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); color: var(--text);
+  cursor: pointer; font-size: 0.9em;
+}
+.settings-close-btn:hover { background: var(--border); }
+
+/* ── Responsive ─────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .toc-sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 20; margin-left: -240px; }
+  .toc-sidebar.open { margin-left: 0; }
+}
+
+@media (max-width: 600px) {
+  .toc-sidebar { width: 100%; margin-left: -100%; }
+  .toc-sidebar.open { margin-left: 0; }
+  .reader-content { padding: 16px 12px; }
+  .reader-toolbar { padding: 6px 8px; }
+}
