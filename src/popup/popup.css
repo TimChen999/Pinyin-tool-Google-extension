@@ -190,6 +190,25 @@ input[type="range"] {
   background: rgba(59, 130, 246, 0.08);
 }
 
+/* ─── Reader button ─────────────────────────────────────────── */
+
+#reader-btn {
+  width: 100%;
+  padding: 8px;
+  margin-bottom: 12px;
+  border: none;
+  border-radius: 4px;
+  background: #3b82f6;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+#reader-btn:hover {
+  background: #2563eb;
+}
+
 /* ─── Tab bar ────────────────────────────────────────────────── */
 
 .tab-bar {
@@ -350,6 +369,14 @@ input[type="range"] {
 
   #ocr-btn:hover {
     background: rgba(96, 165, 250, 0.12);
+  }
+
+  #reader-btn {
+    background: #2563eb;
+  }
+
+  #reader-btn:hover {
+    background: #3b82f6;
   }
 
   #save-btn {

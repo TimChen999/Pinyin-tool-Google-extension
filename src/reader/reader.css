@@ -231,6 +231,35 @@ body { background: var(--bg); color: var(--text); }
 }
 .settings-close-btn:hover { background: var(--border); }
 
+/* ── Custom scrollbars ──────────────────────────────────────── */
+
+.toc-sidebar,
+.reader-main {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.toc-sidebar::-webkit-scrollbar,
+.reader-main::-webkit-scrollbar {
+  width: 6px;
+}
+
+.toc-sidebar::-webkit-scrollbar-track,
+.reader-main::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.toc-sidebar::-webkit-scrollbar-thumb,
+.reader-main::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.toc-sidebar::-webkit-scrollbar-thumb:hover,
+.reader-main::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
 /* ── Responsive ─────────────────────────────────────────────── */
 
 @media (max-width: 900px) {
