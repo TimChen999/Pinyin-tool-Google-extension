@@ -24,12 +24,15 @@ const mockShowOverlayError = vi.fn();
 const mockShowTruncationNotice = vi.fn();
 const mockDismissOverlay = vi.fn();
 
+const mockSetVocabCallback = vi.fn();
+
 vi.mock("../../src/content/overlay", () => ({
   showOverlay: mockShowOverlay,
   updateOverlay: mockUpdateOverlay,
   showOverlayError: mockShowOverlayError,
   showTruncationNotice: mockShowTruncationNotice,
   dismissOverlay: mockDismissOverlay,
+  setVocabCallback: mockSetVocabCallback,
 }));
 
 vi.mock("../../src/content/overlay.css?inline", () => ({

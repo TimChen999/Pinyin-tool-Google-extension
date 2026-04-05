@@ -24,6 +24,17 @@ import overlayStyles from "./overlay.css?inline";
 let shadowRoot: ShadowRoot | null = null;
 let hostElement: HTMLElement | null = null;
 let voicesReady = false;
+let vocabCallback: ((word: { chars: string; pinyin: string; definition: string }) => void) | null = null;
+
+/**
+ * Registers a callback invoked when the user clicks "Add to Vocab"
+ * in a definition card. Keeps overlay.ts free of Chrome extension APIs.
+ */
+export function setVocabCallback(
+  cb: (word: { chars: string; pinyin: string; definition: string }) => void,
+): void {
+  vocabCallback = cb;
+}
 
 // ─── Public API ────────────────────────────────────────────────────
 
@@ -193,7 +204,7 @@ export function renderRubyText(words: WordData[]): string {
       const defAttr = w.definition
         ? ` data-definition="${escapeAttr(w.definition)}"`
         : "";
-      return `<ruby class="hg-word" data-chars="${escapeAttr(w.chars)}"${defAttr}>${escapeHtml(w.chars)}<rt>${escapeHtml(w.pinyin)}</rt></ruby>`;
+      return `<ruby class="hg-word" data-chars="${escapeAttr(w.chars)}" data-pinyin="${escapeAttr(w.pinyin)}"${defAttr}>${escapeHtml(w.chars)}<rt>${escapeHtml(w.pinyin)}</rt></ruby>`;
     })
     .join("");
 }
@@ -339,6 +350,7 @@ function handleWordClick(wordEl: HTMLElement, overlay: HTMLElement): void {
   if (!definition) return;
 
   const chars = wordEl.getAttribute("data-chars") ?? "";
+  const pinyin = wordEl.getAttribute("data-pinyin") ?? "";
 
   const existingCard = overlay.querySelector(".hg-definition-card");
   if (
@@ -354,7 +366,23 @@ function handleWordClick(wordEl: HTMLElement, overlay: HTMLElement): void {
   const card = document.createElement("div");
   card.className = "hg-definition-card";
   card.setAttribute("data-for", chars);
-  card.textContent = `${chars} — ${definition}`;
+
+  const textNode = document.createTextNode(`${chars} — ${definition}`);
+  card.appendChild(textNode);
+
+  if (vocabCallback) {
+    const btn = document.createElement("button");
+    btn.className = "hg-add-vocab-btn";
+    btn.textContent = "+ Vocab";
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      vocabCallback!({ chars, pinyin, definition });
+      btn.textContent = "Added";
+      btn.classList.add("hg-added");
+      btn.disabled = true;
+    });
+    card.appendChild(btn);
+  }
 
   const pinyinRow = overlay.querySelector(".hg-pinyin-row");
   if (pinyinRow?.nextSibling) {

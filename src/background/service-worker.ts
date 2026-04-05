@@ -131,7 +131,6 @@ async function handleLLMPath(
       words: cached.words,
       translation: cached.translation,
     });
-    recordWords(cached.words);
     return;
   }
 
@@ -157,7 +156,6 @@ async function handleLLMPath(
       words: result.words,
       translation: result.translation,
     });
-    recordWords(result.words);
   } else {
     console.error("[LLM] queryLLM returned null — request failed");
     chrome.tabs.sendMessage(tabId, {
@@ -176,7 +174,13 @@ async function handleLLMPath(
  * they follow a different async pattern and don't use sendResponse.
  */
 chrome.runtime.onMessage.addListener(
-  (message: { type: string }, sender: chrome.runtime.MessageSender) => {
+  (message: { type: string; [key: string]: unknown }, sender: chrome.runtime.MessageSender) => {
+    if (message.type === "RECORD_WORD") {
+      const word = message.word as { chars: string; pinyin: string; definition: string };
+      recordWords([word]);
+      return;
+    }
+
     if (message.type === "OCR_START") {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         const tabId = tabs[0]?.id;

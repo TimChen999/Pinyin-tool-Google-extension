@@ -11,7 +11,7 @@
  *      test structure and coverage targets.
  */
 
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import {
   createOverlay,
   showOverlay,
@@ -20,6 +20,7 @@ import {
   dismissOverlay,
   renderRubyText,
   calculatePosition,
+  setVocabCallback,
 } from "../../src/content/overlay";
 import type { WordData } from "../../src/shared/types";
 
@@ -68,11 +69,12 @@ describe("overlay", () => {
       expect(html).toContain("世界");
     });
 
-    it("adds hg-word class and data-chars attribute", () => {
+    it("adds hg-word class, data-chars, and data-pinyin attributes", () => {
       const words: WordData[] = [{ chars: "好", pinyin: "hǎo" }];
       const html = renderRubyText(words);
       expect(html).toContain('class="hg-word"');
       expect(html).toContain('data-chars="好"');
+      expect(html).toContain('data-pinyin="hǎo"');
     });
 
     it("includes data-definition when present", () => {
@@ -363,6 +365,104 @@ describe("overlay", () => {
       word.click();
 
       expect(shadow.querySelector(".hg-definition-card")).toBeNull();
+    });
+  });
+
+  // ─── Add to Vocab button ──────────────────────────────────────────
+  describe("add to vocab button", () => {
+    afterEach(() => {
+      setVocabCallback(() => {});
+    });
+
+    it("shows an Add to Vocab button in the definition card when callback is registered", () => {
+      setVocabCallback(() => {});
+      showOverlay(
+        [{ chars: "好", pinyin: "hǎo" }],
+        makeDOMRect(100, 200, 100, 20),
+        "light",
+      );
+      updateOverlay(
+        [{ chars: "好", pinyin: "hǎo", definition: "good" }],
+        "Good.",
+      );
+
+      const host = document.getElementById("hg-extension-root");
+      const shadow = host!.shadowRoot!;
+      const word = shadow.querySelector(".hg-word") as HTMLElement;
+      word.click();
+
+      const btn = shadow.querySelector(".hg-add-vocab-btn") as HTMLButtonElement;
+      expect(btn).not.toBeNull();
+      expect(btn.textContent).toContain("Vocab");
+    });
+
+    it("calls the registered vocab callback with word data on click", () => {
+      const cb = vi.fn();
+      setVocabCallback(cb);
+      showOverlay(
+        [{ chars: "好", pinyin: "hǎo" }],
+        makeDOMRect(100, 200, 100, 20),
+        "light",
+      );
+      updateOverlay(
+        [{ chars: "好", pinyin: "hǎo", definition: "good" }],
+        "Good.",
+      );
+
+      const host = document.getElementById("hg-extension-root");
+      const shadow = host!.shadowRoot!;
+      const word = shadow.querySelector(".hg-word") as HTMLElement;
+      word.click();
+
+      const btn = shadow.querySelector(".hg-add-vocab-btn") as HTMLButtonElement;
+      btn.click();
+
+      expect(cb).toHaveBeenCalledWith({
+        chars: "好",
+        pinyin: "hǎo",
+        definition: "good",
+      });
+    });
+
+    it("disables the button and shows Added state after click", () => {
+      setVocabCallback(() => {});
+      showOverlay(
+        [{ chars: "好", pinyin: "hǎo" }],
+        makeDOMRect(100, 200, 100, 20),
+        "light",
+      );
+      updateOverlay(
+        [{ chars: "好", pinyin: "hǎo", definition: "good" }],
+        "Good.",
+      );
+
+      const host = document.getElementById("hg-extension-root");
+      const shadow = host!.shadowRoot!;
+      const word = shadow.querySelector(".hg-word") as HTMLElement;
+      word.click();
+
+      const btn = shadow.querySelector(".hg-add-vocab-btn") as HTMLButtonElement;
+      btn.click();
+
+      expect(btn.disabled).toBe(true);
+      expect(btn.textContent).toBe("Added");
+      expect(btn.classList.contains("hg-added")).toBe(true);
+    });
+
+    it("does not show the button when no definition is present (Phase 1)", () => {
+      setVocabCallback(() => {});
+      showOverlay(
+        [{ chars: "好", pinyin: "hǎo" }],
+        makeDOMRect(100, 200, 100, 20),
+        "light",
+      );
+
+      const host = document.getElementById("hg-extension-root");
+      const shadow = host!.shadowRoot!;
+      const word = shadow.querySelector(".hg-word") as HTMLElement;
+      word.click();
+
+      expect(shadow.querySelector(".hg-add-vocab-btn")).toBeNull();
     });
   });
 });

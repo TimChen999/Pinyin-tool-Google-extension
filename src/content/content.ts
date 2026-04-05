@@ -28,6 +28,7 @@ import {
   showOverlayError,
   showTruncationNotice,
   dismissOverlay,
+  setVocabCallback,
 } from "./overlay";
 import { startOCRSelection } from "./ocr-selection";
 
@@ -339,6 +340,12 @@ document.addEventListener("keydown", (e: KeyboardEvent) => {
   if (e.key === "Escape") {
     dismissOverlay();
   }
+});
+
+// ─── Vocab callback ────────────────────────────────────────────────
+
+setVocabCallback((word) => {
+  chrome.runtime.sendMessage({ type: "RECORD_WORD", word });
 });
 
 // ─── Theme caching ─────────────────────────────────────────────────

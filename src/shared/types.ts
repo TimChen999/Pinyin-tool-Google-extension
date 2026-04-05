@@ -163,6 +163,7 @@ export type ExtensionMessage =
   | PinyinError
   | { type: "CONTEXT_MENU_TRIGGER"; text: string }
   | { type: "COMMAND_TRIGGER" }
+  | { type: "RECORD_WORD"; word: { chars: string; pinyin: string; definition: string } }
   | { type: "OCR_START" }
   | { type: "OCR_START_SELECTION" }
   | { type: "OCR_CAPTURE_REQUEST"; rect: { x: number; y: number; width: number; height: number } }

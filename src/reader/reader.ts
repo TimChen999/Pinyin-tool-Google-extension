@@ -14,12 +14,12 @@
 import { convertToPinyin } from "../background/pinyin-service";
 import { queryLLM } from "../background/llm-client";
 import { hashText, getFromCache, saveToCache } from "../background/cache";
-import { recordWords } from "../background/vocab-store";
 import { containsChinese } from "../shared/chinese-detect";
 import {
   showOverlay,
   updateOverlay,
   dismissOverlay,
+  setVocabCallback,
 } from "../content/overlay";
 import {
   DEFAULT_SETTINGS,
@@ -247,7 +247,6 @@ async function processSelection(
   if (cached) {
     if (requestId !== currentRequestId) return;
     updateOverlay(cached.words, cached.translation, settings.ttsEnabled);
-    recordWords(cached.words);
     return;
   }
 
@@ -268,7 +267,6 @@ async function processSelection(
   if (result && requestId === currentRequestId) {
     await saveToCache(cacheKey, result);
     updateOverlay(result.words, result.translation, settings.ttsEnabled);
-    recordWords(result.words);
   }
 }
 
@@ -462,6 +460,10 @@ export async function initReader(): Promise<void> {
   readerSettings = await loadReaderSettings();
   applyTheme(readerSettings.theme);
   populateSettingsPanel(els, readerSettings);
+
+  setVocabCallback((word) => {
+    chrome.runtime.sendMessage({ type: "RECORD_WORD", word });
+  });
 
   await renderRecentFiles(els);
 
