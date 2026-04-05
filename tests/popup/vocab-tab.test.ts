@@ -33,9 +33,9 @@ const mockedRemoveWord = removeWord as ReturnType<typeof vi.fn>;
 // ─── Sample data ─────────────────────────────────────────────────────
 
 const sampleVocab: VocabEntry[] = [
-  { chars: "银行", pinyin: "yín háng", definition: "bank", count: 5, firstSeen: 1000, lastSeen: 5000 },
-  { chars: "工作", pinyin: "gōng zuò", definition: "to work", count: 3, firstSeen: 2000, lastSeen: 4000 },
-  { chars: "学生", pinyin: "xué shēng", definition: "student", count: 7, firstSeen: 500, lastSeen: 3000 },
+  { chars: "银行", pinyin: "yín háng", definition: "bank", count: 5, firstSeen: 1000, lastSeen: 5000, wrongStreak: 0, totalReviews: 0, totalCorrect: 0 },
+  { chars: "工作", pinyin: "gōng zuò", definition: "to work", count: 3, firstSeen: 2000, lastSeen: 4000, wrongStreak: 0, totalReviews: 0, totalCorrect: 0 },
+  { chars: "学生", pinyin: "xué shēng", definition: "student", count: 7, firstSeen: 500, lastSeen: 3000, wrongStreak: 0, totalReviews: 0, totalCorrect: 0 },
 ];
 
 // ─── DOM scaffold ────────────────────────────────────────────────────
@@ -93,7 +93,8 @@ function buildPopupDOM(): void {
     </div>
 
     <button id="ocr-btn">Select text from image</button>
-    <button id="reader-btn">Study & Read</button>
+    <button id="reader-btn">Open Reader</button>
+    <button id="hub-btn">Vocab</button>
 
     <div id="tab-vocab" class="hidden">
       <div class="vocab-controls">

@@ -49,6 +49,7 @@ function getElements() {
     refreshModels: document.getElementById("refresh-models") as HTMLButtonElement,
     ocrBtn: document.getElementById("ocr-btn") as HTMLButtonElement,
     readerBtn: document.getElementById("reader-btn") as HTMLButtonElement,
+    hubBtn: document.getElementById("hub-btn") as HTMLButtonElement,
   };
 }
 
@@ -390,6 +391,13 @@ export async function initPopup(): Promise<void> {
   });
 
   els.readerBtn.addEventListener("click", () => {
+    chrome.tabs.create({
+      url: chrome.runtime.getURL("src/reader/reader.html"),
+    });
+    window.close();
+  });
+
+  els.hubBtn.addEventListener("click", () => {
     chrome.tabs.create({
       url: chrome.runtime.getURL("src/hub/hub.html"),
     });
