@@ -45,7 +45,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["assets/*", "tesseract/*", "src/reader/*"],
+      "resources": ["assets/*", "tesseract/*", "src/reader/*", "src/hub/*"],
       "matches": ["<all_urls>"]
     }
   ]

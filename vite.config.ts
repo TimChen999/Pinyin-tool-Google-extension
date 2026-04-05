@@ -5,7 +5,10 @@ export default defineConfig({
   plugins: [
     webExtension({
       manifest: "manifest.json",
-      additionalInputs: ["src/reader/reader.html"],
+      additionalInputs: [
+        "src/reader/reader.html",
+        "src/hub/hub.html",
+      ],
     }),
   ],
   build: {

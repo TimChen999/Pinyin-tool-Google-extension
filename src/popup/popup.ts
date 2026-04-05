@@ -391,7 +391,7 @@ export async function initPopup(): Promise<void> {
 
   els.readerBtn.addEventListener("click", () => {
     chrome.tabs.create({
-      url: chrome.runtime.getURL("src/reader/reader.html"),
+      url: chrome.runtime.getURL("src/hub/hub.html"),
     });
     window.close();
   });

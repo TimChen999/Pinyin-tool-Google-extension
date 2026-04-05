@@ -70,7 +70,12 @@ export async function getAllVocab(): Promise<VocabEntry[]> {
   const result = await chrome.storage.local.get(STORAGE_KEY);
   const store: VocabRecord | undefined = result[STORAGE_KEY];
   if (!store) return [];
-  return Object.values(store);
+  return Object.values(store).map((entry) => ({
+    wrongStreak: 0,
+    totalReviews: 0,
+    totalCorrect: 0,
+    ...entry,
+  }));
 }
 
 /**
@@ -84,6 +89,30 @@ export async function clearVocab(): Promise<void> {
  * Removes a single word from the vocab store by its chars key.
  * No-op if the word does not exist.
  */
+/**
+ * Updates a single word's flashcard stats after a review.
+ * Persists immediately so partial sessions are not lost.
+ */
+export async function updateFlashcardResult(
+  chars: string,
+  correct: boolean,
+): Promise<void> {
+  const result = await chrome.storage.local.get(STORAGE_KEY);
+  const store: VocabRecord = result[STORAGE_KEY] ?? {};
+  const entry = store[chars];
+  if (!entry) return;
+
+  entry.totalReviews = (entry.totalReviews ?? 0) + 1;
+  if (correct) {
+    entry.totalCorrect = (entry.totalCorrect ?? 0) + 1;
+    entry.wrongStreak = 0;
+  } else {
+    entry.wrongStreak = (entry.wrongStreak ?? 0) + 1;
+  }
+
+  await chrome.storage.local.set({ [STORAGE_KEY]: store });
+}
+
 export async function removeWord(chars: string): Promise<void> {
   const result = await chrome.storage.local.get(STORAGE_KEY);
   const store: VocabRecord = result[STORAGE_KEY] ?? {};

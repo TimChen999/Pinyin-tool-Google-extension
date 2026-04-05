@@ -61,6 +61,9 @@ export interface VocabEntry {
   count: number;
   firstSeen: number;
   lastSeen: number;
+  wrongStreak: number;
+  totalReviews: number;
+  totalCorrect: number;
 }
 
 /**

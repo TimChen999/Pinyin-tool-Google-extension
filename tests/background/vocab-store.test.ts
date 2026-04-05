@@ -4,6 +4,7 @@ import {
   getAllVocab,
   clearVocab,
   removeWord,
+  updateFlashcardResult,
 } from "../../src/background/vocab-store";
 import { MAX_VOCAB_ENTRIES, VOCAB_STOP_WORDS } from "../../src/shared/constants";
 
@@ -201,6 +202,101 @@ describe("vocab-store", () => {
       const vocab = await getAllVocab();
       expect(vocab).toHaveLength(2);
       expect(vocab.map((v) => v.chars).sort()).toEqual(["中文", "学习"]);
+    });
+  });
+
+  describe("backward compatibility", () => {
+    it("getAllVocab backfills new flashcard fields on old entries", async () => {
+      await recordWords(sampleWords);
+      const vocab = await getAllVocab();
+
+      for (const entry of vocab) {
+        expect(entry.wrongStreak).toBe(0);
+        expect(entry.totalReviews).toBe(0);
+        expect(entry.totalCorrect).toBe(0);
+      }
+    });
+
+    it("getAllVocab preserves existing flashcard fields", async () => {
+      await recordWords(sampleWords);
+      await updateFlashcardResult("银行", false);
+      await updateFlashcardResult("银行", false);
+      await updateFlashcardResult("银行", true);
+
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      expect(bank.wrongStreak).toBe(0);
+      expect(bank.totalReviews).toBe(3);
+      expect(bank.totalCorrect).toBe(1);
+    });
+  });
+
+  describe("updateFlashcardResult", () => {
+    it("increments totalReviews and totalCorrect on correct", async () => {
+      await recordWords(sampleWords);
+      await updateFlashcardResult("银行", true);
+
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      expect(bank.totalReviews).toBe(1);
+      expect(bank.totalCorrect).toBe(1);
+      expect(bank.wrongStreak).toBe(0);
+    });
+
+    it("increments totalReviews and wrongStreak on wrong", async () => {
+      await recordWords(sampleWords);
+      await updateFlashcardResult("银行", false);
+
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      expect(bank.totalReviews).toBe(1);
+      expect(bank.totalCorrect).toBe(0);
+      expect(bank.wrongStreak).toBe(1);
+    });
+
+    it("resets wrongStreak to 0 on correct after wrong answers", async () => {
+      await recordWords(sampleWords);
+      await updateFlashcardResult("银行", false);
+      await updateFlashcardResult("银行", false);
+      await updateFlashcardResult("银行", true);
+
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      expect(bank.wrongStreak).toBe(0);
+      expect(bank.totalReviews).toBe(3);
+      expect(bank.totalCorrect).toBe(1);
+    });
+
+    it("accumulates wrongStreak on consecutive wrong answers", async () => {
+      await recordWords(sampleWords);
+      await updateFlashcardResult("银行", false);
+      await updateFlashcardResult("银行", false);
+      await updateFlashcardResult("银行", false);
+
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      expect(bank.wrongStreak).toBe(3);
+    });
+
+    it("is a no-op for a non-existent word", async () => {
+      await recordWords(sampleWords);
+      await expect(updateFlashcardResult("不存在", true)).resolves.not.toThrow();
+
+      const vocab = await getAllVocab();
+      expect(vocab).toHaveLength(2);
+    });
+
+    it("updates only the targeted word", async () => {
+      await recordWords(sampleWords);
+      await updateFlashcardResult("银行", true);
+      await updateFlashcardResult("银行", false);
+
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      const work = vocab.find((v) => v.chars === "工作")!;
+
+      expect(bank.totalReviews).toBe(2);
+      expect(work.totalReviews).toBe(0);
     });
   });
 

@@ -93,7 +93,7 @@ function buildPopupDOM(): void {
     </div>
 
     <button id="ocr-btn">Select text from image</button>
-    <button id="reader-btn">Open Reader</button>
+    <button id="reader-btn">Study & Read</button>
 
     <div id="tab-vocab" class="hidden">
       <div class="vocab-controls">

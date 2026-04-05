@@ -1,0 +1,916 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  background: #ffffff;
+  color: #1a1a1a;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ─── Header ──────────────────────────────────────────────────── */
+
+.hub-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+
+.hub-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.reader-btn {
+  padding: 8px 18px;
+  border: none;
+  border-radius: 6px;
+  background: #3b82f6;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.reader-btn:hover {
+  background: #2563eb;
+}
+
+/* ─── Tab Bar ─────────────────────────────────────────────────── */
+
+.hub-tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 0 24px;
+  background: #f9fafb;
+}
+
+.hub-tab {
+  padding: 12px 20px;
+  border: none;
+  background: none;
+  font-size: 14px;
+  font-weight: 500;
+  color: #6b7280;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.hub-tab.active {
+  color: #3b82f6;
+  border-bottom-color: #3b82f6;
+}
+
+.hub-tab:hover:not(.active) {
+  color: #374151;
+}
+
+/* ─── Tab Content ─────────────────────────────────────────────── */
+
+.hub-tab-content {
+  flex: 1;
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+/* ─── Vocab Controls ──────────────────────────────────────────── */
+
+.vocab-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  gap: 12px;
+}
+
+.vocab-controls select {
+  padding: 6px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #ffffff;
+  color: #1a1a1a;
+  outline: none;
+}
+
+.vocab-controls select:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.clear-btn {
+  padding: 6px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #f9fafb;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  color: #374151;
+}
+
+.clear-btn:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
+/* ─── Vocab List ──────────────────────────────────────────────── */
+
+.vocab-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.vocab-row {
+  padding: 12px 8px;
+  border-bottom: 1px solid #f3f4f6;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.1s;
+}
+
+.vocab-row:hover {
+  background: #f3f4f6;
+}
+
+.vocab-row-primary {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.vocab-chars {
+  font-weight: 700;
+  font-size: 18px;
+  min-width: 56px;
+}
+
+.vocab-pinyin {
+  color: #6b7280;
+  font-size: 14px;
+  min-width: 80px;
+}
+
+.vocab-def {
+  flex: 1;
+  color: #374151;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vocab-row-meta {
+  font-size: 12px;
+  color: #9ca3af;
+  margin-top: 4px;
+  padding-left: 2px;
+}
+
+.vocab-empty {
+  color: #9ca3af;
+  font-size: 14px;
+  text-align: center;
+  padding: 48px 16px;
+}
+
+/* ─── Vocab Detail Card ───────────────────────────────────────── */
+
+.vocab-card-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.vocab-card {
+  position: relative;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 28px;
+  max-width: 360px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+
+.vocab-card-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  border: none;
+  background: none;
+  font-size: 20px;
+  color: #9ca3af;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.vocab-card-close:hover {
+  color: #374151;
+  background: #f3f4f6;
+}
+
+.vocab-card-chars {
+  font-size: 32px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.vocab-card-pinyin {
+  font-size: 16px;
+  color: #6b7280;
+  margin-bottom: 10px;
+}
+
+.vocab-card-def {
+  font-size: 15px;
+  color: #374151;
+  line-height: 1.6;
+  word-wrap: break-word;
+  margin-bottom: 10px;
+}
+
+.vocab-card-meta {
+  font-size: 12px;
+  color: #9ca3af;
+  margin-bottom: 16px;
+  line-height: 1.6;
+}
+
+.vocab-card-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.vocab-card-delete {
+  padding: 6px 16px;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.vocab-card-delete:hover {
+  background: #fecaca;
+  border-color: #f87171;
+}
+
+/* ─── Flashcard Setup ─────────────────────────────────────────── */
+
+.fc-setup {
+  text-align: center;
+  padding: 48px 16px;
+}
+
+.fc-setup h2 {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 20px;
+}
+
+.fc-prompt {
+  font-size: 15px;
+  color: #6b7280;
+  margin-bottom: 14px;
+}
+
+.fc-size-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.fc-size-btn {
+  padding: 8px 20px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  font-size: 14px;
+  cursor: pointer;
+  color: #374151;
+  transition: all 0.15s;
+}
+
+.fc-size-btn:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
+.fc-size-btn.selected {
+  background: #3b82f6;
+  color: #ffffff;
+  border-color: #3b82f6;
+}
+
+.fc-available {
+  font-size: 13px;
+  color: #9ca3af;
+  margin-bottom: 24px;
+}
+
+.fc-start-btn {
+  padding: 10px 36px;
+  border: none;
+  border-radius: 6px;
+  background: #3b82f6;
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.fc-start-btn:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.fc-start-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ─── Flashcard Session ───────────────────────────────────────── */
+
+.fc-session {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 16px;
+}
+
+.fc-session-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  max-width: 480px;
+  margin-bottom: 32px;
+}
+
+#fc-progress {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.fc-close-btn {
+  border: none;
+  background: none;
+  font-size: 24px;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.fc-close-btn:hover {
+  color: #374151;
+  background: #f3f4f6;
+}
+
+.fc-card {
+  width: 100%;
+  max-width: 480px;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 32px;
+  margin-bottom: 24px;
+  background: #f9fafb;
+}
+
+.fc-chars {
+  font-size: 36px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.fc-answer {
+  margin-top: 16px;
+  text-align: center;
+}
+
+.fc-pinyin {
+  font-size: 18px;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+
+.fc-definition {
+  font-size: 16px;
+  color: #374151;
+}
+
+/* ─── Flashcard Actions ───────────────────────────────────────── */
+
+.fc-actions {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+
+.fc-flip-btn {
+  padding: 10px 36px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  font-size: 15px;
+  cursor: pointer;
+  color: #374151;
+}
+
+.fc-flip-btn:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
+.fc-judge {
+  display: flex;
+  gap: 20px;
+}
+
+.fc-wrong-btn {
+  padding: 10px 28px;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: #dc2626;
+  font-size: 20px;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.fc-wrong-btn:hover {
+  background: #fee2e2;
+  border-color: #f87171;
+}
+
+.fc-right-btn {
+  padding: 10px 28px;
+  border: 1px solid #86efac;
+  border-radius: 6px;
+  background: #f0fdf4;
+  color: #16a34a;
+  font-size: 20px;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.fc-right-btn:hover {
+  background: #dcfce7;
+  border-color: #4ade80;
+}
+
+/* ─── Flashcard Summary ───────────────────────────────────────── */
+
+.fc-summary {
+  text-align: center;
+  padding: 48px 16px;
+}
+
+.fc-summary h2 {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.fc-score {
+  font-size: 18px;
+  color: #374151;
+  margin-bottom: 24px;
+}
+
+.fc-wrong-list {
+  text-align: left;
+  max-width: 480px;
+  margin: 0 auto 28px;
+}
+
+.fc-wrong-list h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: #374151;
+}
+
+.fc-wrong-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 14px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.fc-wrong-item-chars {
+  font-weight: 600;
+}
+
+.fc-wrong-item-pinyin {
+  color: #6b7280;
+}
+
+.fc-wrong-item-def {
+  color: #374151;
+}
+
+.fc-congrats {
+  font-size: 15px;
+  color: #16a34a;
+  margin-bottom: 24px;
+}
+
+.fc-summary-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.fc-again-btn {
+  padding: 10px 24px;
+  border: none;
+  border-radius: 6px;
+  background: #3b82f6;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.fc-again-btn:hover {
+  background: #2563eb;
+}
+
+.fc-back-btn {
+  padding: 10px 24px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  color: #374151;
+}
+
+.fc-back-btn:hover {
+  background: #f3f4f6;
+}
+
+/* ─── Dark Mode ───────────────────────────────────────────────── */
+
+body[data-theme="dark"] {
+  background: #111827;
+  color: #f3f4f6;
+}
+
+body[data-theme="dark"] .hub-header {
+  background: #1f2937;
+  border-bottom-color: #374151;
+}
+
+body[data-theme="dark"] .reader-btn {
+  background: #2563eb;
+}
+
+body[data-theme="dark"] .reader-btn:hover {
+  background: #3b82f6;
+}
+
+body[data-theme="dark"] .hub-tab-bar {
+  background: #1f2937;
+  border-bottom-color: #374151;
+}
+
+body[data-theme="dark"] .hub-tab {
+  color: #9ca3af;
+}
+
+body[data-theme="dark"] .hub-tab.active {
+  color: #60a5fa;
+  border-bottom-color: #60a5fa;
+}
+
+body[data-theme="dark"] .hub-tab:hover:not(.active) {
+  color: #d1d5db;
+}
+
+body[data-theme="dark"] .vocab-controls select {
+  background: #374151;
+  color: #f3f4f6;
+  border-color: #4b5563;
+}
+
+body[data-theme="dark"] .vocab-controls select:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+}
+
+body[data-theme="dark"] .clear-btn {
+  background: #374151;
+  border-color: #4b5563;
+  color: #d1d5db;
+}
+
+body[data-theme="dark"] .clear-btn:hover {
+  background: #7f1d1d;
+  border-color: #fca5a5;
+  color: #fca5a5;
+}
+
+body[data-theme="dark"] .vocab-row {
+  border-bottom-color: #374151;
+}
+
+body[data-theme="dark"] .vocab-row:hover {
+  background: #1f2937;
+}
+
+body[data-theme="dark"] .vocab-pinyin {
+  color: #9ca3af;
+}
+
+body[data-theme="dark"] .vocab-def {
+  color: #d1d5db;
+}
+
+body[data-theme="dark"] .vocab-row-meta {
+  color: #6b7280;
+}
+
+body[data-theme="dark"] .vocab-empty {
+  color: #6b7280;
+}
+
+body[data-theme="dark"] .vocab-card {
+  background: #1f2937;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+body[data-theme="dark"] .vocab-card-close {
+  color: #6b7280;
+}
+
+body[data-theme="dark"] .vocab-card-close:hover {
+  color: #d1d5db;
+  background: #374151;
+}
+
+body[data-theme="dark"] .vocab-card-chars {
+  color: #f3f4f6;
+}
+
+body[data-theme="dark"] .vocab-card-pinyin {
+  color: #9ca3af;
+}
+
+body[data-theme="dark"] .vocab-card-def {
+  color: #d1d5db;
+}
+
+body[data-theme="dark"] .vocab-card-meta {
+  color: #6b7280;
+}
+
+body[data-theme="dark"] .vocab-card-delete {
+  background: #7f1d1d;
+  border-color: #fca5a5;
+  color: #fca5a5;
+}
+
+body[data-theme="dark"] .vocab-card-delete:hover {
+  background: #991b1b;
+  border-color: #f87171;
+}
+
+body[data-theme="dark"] .fc-card {
+  background: #1f2937;
+  border-color: #374151;
+}
+
+body[data-theme="dark"] .fc-chars {
+  color: #f3f4f6;
+}
+
+body[data-theme="dark"] .fc-pinyin {
+  color: #9ca3af;
+}
+
+body[data-theme="dark"] .fc-definition {
+  color: #d1d5db;
+}
+
+body[data-theme="dark"] .fc-size-btn {
+  background: #1f2937;
+  border-color: #4b5563;
+  color: #d1d5db;
+}
+
+body[data-theme="dark"] .fc-size-btn:hover {
+  border-color: #60a5fa;
+  color: #60a5fa;
+}
+
+body[data-theme="dark"] .fc-size-btn.selected {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+}
+
+body[data-theme="dark"] .fc-flip-btn {
+  background: #1f2937;
+  border-color: #4b5563;
+  color: #d1d5db;
+}
+
+body[data-theme="dark"] .fc-flip-btn:hover {
+  border-color: #60a5fa;
+  color: #60a5fa;
+}
+
+body[data-theme="dark"] .fc-wrong-btn {
+  background: #450a0a;
+  border-color: #f87171;
+  color: #fca5a5;
+}
+
+body[data-theme="dark"] .fc-wrong-btn:hover {
+  background: #7f1d1d;
+}
+
+body[data-theme="dark"] .fc-right-btn {
+  background: #052e16;
+  border-color: #4ade80;
+  color: #86efac;
+}
+
+body[data-theme="dark"] .fc-right-btn:hover {
+  background: #14532d;
+}
+
+body[data-theme="dark"] .fc-score {
+  color: #d1d5db;
+}
+
+body[data-theme="dark"] .fc-wrong-list h3 {
+  color: #d1d5db;
+}
+
+body[data-theme="dark"] .fc-wrong-item {
+  border-bottom-color: #374151;
+}
+
+body[data-theme="dark"] .fc-wrong-item-def {
+  color: #d1d5db;
+}
+
+body[data-theme="dark"] .fc-back-btn {
+  background: #1f2937;
+  border-color: #4b5563;
+  color: #d1d5db;
+}
+
+body[data-theme="dark"] .fc-back-btn:hover {
+  background: #374151;
+}
+
+body[data-theme="dark"] .fc-start-btn {
+  background: #2563eb;
+}
+
+body[data-theme="dark"] .fc-start-btn:hover:not(:disabled) {
+  background: #3b82f6;
+}
+
+body[data-theme="dark"] .fc-again-btn {
+  background: #2563eb;
+}
+
+body[data-theme="dark"] .fc-again-btn:hover {
+  background: #3b82f6;
+}
+
+body[data-theme="dark"] .fc-prompt {
+  color: #9ca3af;
+}
+
+body[data-theme="dark"] .fc-available {
+  color: #6b7280;
+}
+
+body[data-theme="dark"] .fc-close-btn {
+  color: #6b7280;
+}
+
+body[data-theme="dark"] .fc-close-btn:hover {
+  color: #d1d5db;
+  background: #374151;
+}
+
+/* ─── Auto theme (follows OS) ─────────────────────────────────── */
+
+@media (prefers-color-scheme: dark) {
+  body[data-theme="auto"] {
+    background: #111827;
+    color: #f3f4f6;
+  }
+
+  body[data-theme="auto"] .hub-header {
+    background: #1f2937;
+    border-bottom-color: #374151;
+  }
+
+  body[data-theme="auto"] .reader-btn { background: #2563eb; }
+  body[data-theme="auto"] .reader-btn:hover { background: #3b82f6; }
+
+  body[data-theme="auto"] .hub-tab-bar {
+    background: #1f2937;
+    border-bottom-color: #374151;
+  }
+
+  body[data-theme="auto"] .hub-tab { color: #9ca3af; }
+  body[data-theme="auto"] .hub-tab.active { color: #60a5fa; border-bottom-color: #60a5fa; }
+  body[data-theme="auto"] .hub-tab:hover:not(.active) { color: #d1d5db; }
+
+  body[data-theme="auto"] .vocab-controls select { background: #374151; color: #f3f4f6; border-color: #4b5563; }
+  body[data-theme="auto"] .vocab-controls select:focus { border-color: #60a5fa; box-shadow: 0 0 0 2px rgba(96,165,250,0.2); }
+  body[data-theme="auto"] .clear-btn { background: #374151; border-color: #4b5563; color: #d1d5db; }
+  body[data-theme="auto"] .clear-btn:hover { background: #7f1d1d; border-color: #fca5a5; color: #fca5a5; }
+
+  body[data-theme="auto"] .vocab-row { border-bottom-color: #374151; }
+  body[data-theme="auto"] .vocab-row:hover { background: #1f2937; }
+  body[data-theme="auto"] .vocab-pinyin { color: #9ca3af; }
+  body[data-theme="auto"] .vocab-def { color: #d1d5db; }
+  body[data-theme="auto"] .vocab-row-meta { color: #6b7280; }
+  body[data-theme="auto"] .vocab-empty { color: #6b7280; }
+
+  body[data-theme="auto"] .vocab-card { background: #1f2937; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+  body[data-theme="auto"] .vocab-card-close { color: #6b7280; }
+  body[data-theme="auto"] .vocab-card-close:hover { color: #d1d5db; background: #374151; }
+  body[data-theme="auto"] .vocab-card-chars { color: #f3f4f6; }
+  body[data-theme="auto"] .vocab-card-pinyin { color: #9ca3af; }
+  body[data-theme="auto"] .vocab-card-def { color: #d1d5db; }
+  body[data-theme="auto"] .vocab-card-meta { color: #6b7280; }
+  body[data-theme="auto"] .vocab-card-delete { background: #7f1d1d; border-color: #fca5a5; color: #fca5a5; }
+  body[data-theme="auto"] .vocab-card-delete:hover { background: #991b1b; border-color: #f87171; }
+
+  body[data-theme="auto"] .fc-card { background: #1f2937; border-color: #374151; }
+  body[data-theme="auto"] .fc-chars { color: #f3f4f6; }
+  body[data-theme="auto"] .fc-pinyin { color: #9ca3af; }
+  body[data-theme="auto"] .fc-definition { color: #d1d5db; }
+  body[data-theme="auto"] .fc-size-btn { background: #1f2937; border-color: #4b5563; color: #d1d5db; }
+  body[data-theme="auto"] .fc-size-btn:hover { border-color: #60a5fa; color: #60a5fa; }
+  body[data-theme="auto"] .fc-size-btn.selected { background: #2563eb; color: #ffffff; border-color: #2563eb; }
+  body[data-theme="auto"] .fc-flip-btn { background: #1f2937; border-color: #4b5563; color: #d1d5db; }
+  body[data-theme="auto"] .fc-flip-btn:hover { border-color: #60a5fa; color: #60a5fa; }
+  body[data-theme="auto"] .fc-wrong-btn { background: #450a0a; border-color: #f87171; color: #fca5a5; }
+  body[data-theme="auto"] .fc-wrong-btn:hover { background: #7f1d1d; }
+  body[data-theme="auto"] .fc-right-btn { background: #052e16; border-color: #4ade80; color: #86efac; }
+  body[data-theme="auto"] .fc-right-btn:hover { background: #14532d; }
+  body[data-theme="auto"] .fc-score { color: #d1d5db; }
+  body[data-theme="auto"] .fc-wrong-list h3 { color: #d1d5db; }
+  body[data-theme="auto"] .fc-wrong-item { border-bottom-color: #374151; }
+  body[data-theme="auto"] .fc-wrong-item-def { color: #d1d5db; }
+  body[data-theme="auto"] .fc-back-btn { background: #1f2937; border-color: #4b5563; color: #d1d5db; }
+  body[data-theme="auto"] .fc-back-btn:hover { background: #374151; }
+  body[data-theme="auto"] .fc-start-btn { background: #2563eb; }
+  body[data-theme="auto"] .fc-start-btn:hover:not(:disabled) { background: #3b82f6; }
+  body[data-theme="auto"] .fc-again-btn { background: #2563eb; }
+  body[data-theme="auto"] .fc-again-btn:hover { background: #3b82f6; }
+  body[data-theme="auto"] .fc-prompt { color: #9ca3af; }
+  body[data-theme="auto"] .fc-available { color: #6b7280; }
+  body[data-theme="auto"] .fc-close-btn { color: #6b7280; }
+  body[data-theme="auto"] .fc-close-btn:hover { color: #d1d5db; background: #374151; }
+}
