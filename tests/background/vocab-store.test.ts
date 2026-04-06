@@ -1,4 +1,13 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
+vi.mock("../../src/background/sync-client", () => ({
+  pushEntries: vi.fn().mockResolvedValue(undefined),
+  pushDelete: vi.fn().mockResolvedValue(undefined),
+  pushClear: vi.fn().mockResolvedValue(undefined),
+  isSyncReady: vi.fn().mockReturnValue(false),
+  logSyncError: vi.fn(),
+}));
+
 import {
   recordWords,
   getAllVocab,

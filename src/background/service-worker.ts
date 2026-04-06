@@ -19,6 +19,7 @@ import { convertToPinyin } from "./pinyin-service";
 import { queryLLM } from "./llm-client";
 import { hashText, getFromCache, saveToCache, evictExpiredEntries } from "./cache";
 import { recordWords, removeWord } from "./vocab-store";
+import { initSync } from "./sync-client";
 import {
   DEFAULT_SETTINGS,
   PROVIDER_PRESETS,
@@ -31,6 +32,9 @@ import type {
   PinyinRequest,
   PinyinResponseLocal,
 } from "../shared/types";
+
+// ─── Cloud Sync Initialization ─────────────────────────────────────
+initSync().catch((err) => console.warn("[Sync] Init failed:", err));
 
 // ─── Settings Helper ───────────────────────────────────────────────
 

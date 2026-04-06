@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "epubjs": "^0.3.93",
+    "firebase": "^12.11.0",
     "pinyin-pro": "^3",
     "tesseract.js": "^5"
   },

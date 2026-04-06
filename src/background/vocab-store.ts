@@ -10,6 +10,13 @@
 
 import type { VocabEntry, WordData } from "../shared/types";
 import { MAX_VOCAB_ENTRIES, VOCAB_STOP_WORDS } from "../shared/constants";
+import {
+  pushEntries,
+  pushDelete,
+  pushClear,
+  isSyncReady,
+  logSyncError,
+} from "./sync-client";
 
 const STORAGE_KEY = "vocabStore";
 
@@ -60,6 +67,14 @@ export async function recordWords(
   }
 
   await chrome.storage.local.set({ [STORAGE_KEY]: store });
+
+  if (isSyncReady()) {
+    const changed = words
+      .filter((w) => !VOCAB_STOP_WORDS.has(w.chars))
+      .map((w) => store[w.chars])
+      .filter(Boolean);
+    pushEntries(changed).catch(logSyncError);
+  }
 }
 
 /**
@@ -83,6 +98,10 @@ export async function getAllVocab(): Promise<VocabEntry[]> {
  */
 export async function clearVocab(): Promise<void> {
   await chrome.storage.local.remove(STORAGE_KEY);
+
+  if (isSyncReady()) {
+    pushClear().catch(logSyncError);
+  }
 }
 
 /**
@@ -111,6 +130,10 @@ export async function updateFlashcardResult(
   }
 
   await chrome.storage.local.set({ [STORAGE_KEY]: store });
+
+  if (isSyncReady()) {
+    pushEntries([entry]).catch(logSyncError);
+  }
 }
 
 export async function removeWord(chars: string): Promise<void> {
@@ -118,4 +141,8 @@ export async function removeWord(chars: string): Promise<void> {
   const store: VocabRecord = result[STORAGE_KEY] ?? {};
   delete store[chars];
   await chrome.storage.local.set({ [STORAGE_KEY]: store });
+
+  if (isSyncReady()) {
+    pushDelete(chars).catch(logSyncError);
+  }
 }

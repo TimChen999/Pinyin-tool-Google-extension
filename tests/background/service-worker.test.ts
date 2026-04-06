@@ -2,6 +2,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DEFAULT_SETTINGS } from "../../src/shared/constants";
 import type { PinyinRequest, PinyinResponseLocal } from "../../src/shared/types";
 
+vi.mock("../../src/background/sync-client", () => ({
+  initSync: vi.fn(() => Promise.resolve()),
+  pushEntries: vi.fn(() => Promise.resolve()),
+  pushDelete: vi.fn(() => Promise.resolve()),
+  pushClear: vi.fn(() => Promise.resolve()),
+  isSyncReady: vi.fn(() => false),
+  logSyncError: vi.fn(),
+}));
+
 vi.mock("../../src/background/vocab-store", () => ({
   recordWords: vi.fn(() => Promise.resolve()),
   removeWord: vi.fn(() => Promise.resolve()),
