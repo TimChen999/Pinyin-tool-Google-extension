@@ -79,10 +79,6 @@ function buildPopupDOM(): void {
 
     <div id="tab-vocab" class="hidden">
       <div class="vocab-controls">
-        <select id="vocab-sort">
-          <option value="frequency">Most frequent</option>
-          <option value="recent">Most recent</option>
-        </select>
         <button type="button" id="clear-vocab">Clear List</button>
       </div>
       <div id="vocab-list"></div>

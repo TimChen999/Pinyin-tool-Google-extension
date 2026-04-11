@@ -43,7 +43,6 @@ function getElements() {
     tabButtons: document.querySelectorAll<HTMLButtonElement>(".tab-btn"),
     tabSettings: document.getElementById("tab-settings") as HTMLDivElement,
     tabVocab: document.getElementById("tab-vocab") as HTMLDivElement,
-    vocabSort: document.getElementById("vocab-sort") as HTMLSelectElement,
     vocabList: document.getElementById("vocab-list") as HTMLDivElement,
     clearVocabBtn: document.getElementById("clear-vocab") as HTMLButtonElement,
     refreshModels: document.getElementById("refresh-models") as HTMLButtonElement,
@@ -318,17 +317,11 @@ function showVocabCard(
 
 // ─── Vocab List ─────────────────────────────────────────────────────
 
-const POPUP_VOCAB_LIMIT = 200;
+const POPUP_VOCAB_LIMIT = 50;
 
 async function renderVocabList(els: ReturnType<typeof getElements>): Promise<void> {
   const entries = await getAllVocab();
-  const sortBy = els.vocabSort.value;
-
-  if (sortBy === "recent") {
-    entries.sort((a, b) => b.lastSeen - a.lastSeen);
-  } else {
-    entries.sort((a, b) => b.count - a.count);
-  }
+  entries.sort((a, b) => b.lastSeen - a.lastSeen);
 
   const displayed = entries.slice(0, POPUP_VOCAB_LIMIT);
   els.vocabList.innerHTML = "";
@@ -346,8 +339,7 @@ async function renderVocabList(els: ReturnType<typeof getElements>): Promise<voi
     row.innerHTML =
       `<span class="vocab-chars">${entry.chars}</span>` +
       `<span class="vocab-pinyin">${entry.pinyin}</span>` +
-      `<span class="vocab-def">${entry.definition}</span>` +
-      `<span class="vocab-count">${entry.count}</span>`;
+      `<span class="vocab-def">${entry.definition}</span>`;
     row.addEventListener("click", () => showVocabCard(entry, els));
     els.vocabList.appendChild(row);
   }
@@ -471,8 +463,6 @@ export async function initPopup(): Promise<void> {
       }
     });
   });
-
-  els.vocabSort.addEventListener("change", () => renderVocabList(els));
 
   els.clearVocabBtn.addEventListener("click", async () => {
     if (confirm("Clear all recorded words?")) {

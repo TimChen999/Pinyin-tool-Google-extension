@@ -262,15 +262,9 @@ input[type="range"] {
 
 .vocab-controls {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   margin-bottom: 12px;
-  gap: 8px;
-}
-
-.vocab-controls select {
-  width: auto;
-  flex: 1;
 }
 
 .vocab-controls button {
@@ -320,13 +314,6 @@ input[type="range"] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.vocab-count {
-  color: #9ca3af;
-  font-size: 12px;
-  min-width: 20px;
-  text-align: right;
 }
 
 .vocab-empty {
@@ -558,10 +545,6 @@ input[type="range"] {
 
   .vocab-def {
     color: #d1d5db;
-  }
-
-  .vocab-count {
-    color: #6b7280;
   }
 
   .vocab-empty {

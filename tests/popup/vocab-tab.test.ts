@@ -98,10 +98,6 @@ function buildPopupDOM(): void {
 
     <div id="tab-vocab" class="hidden">
       <div class="vocab-controls">
-        <select id="vocab-sort">
-          <option value="frequency">Most frequent</option>
-          <option value="recent">Most recent</option>
-        </select>
         <button type="button" id="clear-vocab">Clear List</button>
       </div>
       <div id="vocab-list"></div>
@@ -143,10 +139,6 @@ function tabVocab(): HTMLDivElement {
 
 function vocabList(): HTMLDivElement {
   return document.getElementById("vocab-list") as HTMLDivElement;
-}
-
-function vocabSort(): HTMLSelectElement {
-  return document.getElementById("vocab-sort") as HTMLSelectElement;
 }
 
 function clearVocabBtn(): HTMLButtonElement {
@@ -199,7 +191,7 @@ describe("vocab tab", () => {
       expect(empty!.textContent).toContain("No words recorded");
     });
 
-    it("displays chars, pinyin, definition, and count in each row", async () => {
+    it("displays chars, pinyin, and definition in each row", async () => {
       mockedGetAllVocab.mockResolvedValue([sampleVocab[0]]);
       await loadPopup();
       await switchToVocabTab();
@@ -208,14 +200,13 @@ describe("vocab tab", () => {
       expect(row.querySelector(".vocab-chars")!.textContent).toBe("银行");
       expect(row.querySelector(".vocab-pinyin")!.textContent).toBe("yín háng");
       expect(row.querySelector(".vocab-def")!.textContent).toBe("bank");
-      expect(row.querySelector(".vocab-count")!.textContent).toBe("5");
     });
   });
 
   // ─── Sorting ──────────────────────────────────────────────────
 
   describe("sorting", () => {
-    it("sorts by frequency descending by default", async () => {
+    it("sorts by most recent descending", async () => {
       mockedGetAllVocab.mockResolvedValue([...sampleVocab]);
       await loadPopup();
       await switchToVocabTab();
@@ -224,24 +215,7 @@ describe("vocab tab", () => {
       const chars = Array.from(rows).map(
         (r) => r.querySelector(".vocab-chars")!.textContent,
       );
-      expect(chars).toEqual(["学生", "银行", "工作"]);
-    });
-
-    it("sorts by most recent when selected", async () => {
-      mockedGetAllVocab.mockResolvedValue([...sampleVocab]);
-      await loadPopup();
-      await switchToVocabTab();
-
-      vocabSort().value = "recent";
-      vocabSort().dispatchEvent(new Event("change"));
-
-      await vi.waitFor(() => {
-        const rows = vocabList().querySelectorAll(".vocab-row");
-        const chars = Array.from(rows).map(
-          (r) => r.querySelector(".vocab-chars")!.textContent,
-        );
-        expect(chars).toEqual(["银行", "工作", "学生"]);
-      });
+      expect(chars).toEqual(["银行", "工作", "学生"]);
     });
   });
 
