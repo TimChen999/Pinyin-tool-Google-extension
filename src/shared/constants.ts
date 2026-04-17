@@ -77,6 +77,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   theme: "auto",
   llmEnabled: true,
   ttsEnabled: true,
+  overlayEnabled: true,
 };
 
 // ─── Cache Configuration ───────────────────────────────────────────

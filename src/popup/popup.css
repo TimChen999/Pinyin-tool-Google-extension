@@ -128,6 +128,13 @@ input[type="range"] {
   margin: 0;
 }
 
+.setting-hint {
+  margin: 4px 0 0 22px;
+  font-size: 11px;
+  color: #6b7280;
+  line-height: 1.4;
+}
+
 .hidden {
   display: none !important;
 }

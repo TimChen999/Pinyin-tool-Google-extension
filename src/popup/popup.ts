@@ -38,6 +38,7 @@ function getElements() {
     theme: document.getElementById("theme") as HTMLSelectElement,
     llmEnabled: document.getElementById("llm-enabled") as HTMLInputElement,
     ttsEnabled: document.getElementById("tts-enabled") as HTMLInputElement,
+    overlayEnabled: document.getElementById("overlay-enabled") as HTMLInputElement,
     saveBtn: document.getElementById("save-btn") as HTMLButtonElement,
     status: document.getElementById("status") as HTMLDivElement,
     tabButtons: document.querySelectorAll<HTMLButtonElement>(".tab-btn"),
@@ -233,6 +234,7 @@ function readFormValues(els: ReturnType<typeof getElements>): ExtensionSettings 
     theme: els.theme.value as ExtensionSettings["theme"],
     llmEnabled: els.llmEnabled.checked,
     ttsEnabled: els.ttsEnabled.checked,
+    overlayEnabled: els.overlayEnabled.checked,
   };
 }
 
@@ -369,6 +371,7 @@ export async function initPopup(): Promise<void> {
   els.theme.value = settings.theme;
   els.llmEnabled.checked = settings.llmEnabled;
   els.ttsEnabled.checked = settings.ttsEnabled;
+  els.overlayEnabled.checked = settings.overlayEnabled;
 
   els.pinyinRadios.forEach((r) => {
     r.checked = r.value === settings.pinyinStyle;

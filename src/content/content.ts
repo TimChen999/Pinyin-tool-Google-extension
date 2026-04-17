@@ -49,6 +49,16 @@ let cachedTheme: Theme = "auto";
 /** Cached TTS toggle so each overlay doesn't need a storage read. */
 let cachedTtsEnabled = true;
 
+/**
+ * Cached "auto-show overlay on mouseup" toggle. When false, the
+ * mouseup listener is a no-op so plain text selections do not pop
+ * the overlay. The right-click menu item and Alt+Shift+P shortcut
+ * remain active so the user can still trigger the overlay on demand.
+ * Defaults to true to match DEFAULT_SETTINGS and preserve historical
+ * behavior on first install.
+ */
+let cachedOverlayEnabled = true;
+
 /** Viewport rect from the most recent OCR area selection, awaiting capture result. */
 let pendingOCRRect: { x: number; y: number; width: number; height: number } | null = null;
 
@@ -193,9 +203,17 @@ function processSelection(text: string, rect: DOMRect, context: string): void {
  * Debounced mouseup listener. On each mouseup, checks the current
  * text selection for Chinese content and kicks off the pinyin flow.
  * Debouncing at DEBOUNCE_MS prevents firing during click-drag.
+ *
+ * Gated by cachedOverlayEnabled: when the user has disabled the
+ * auto-show setting, plain mouseup selections are ignored. The
+ * context-menu and keyboard-shortcut paths bypass this gate so the
+ * user can still trigger lookups on demand.
+ *
  * (IMPLEMENTATION_GUIDE.md Step 7a.1)
  */
 const handleMouseup = debounce(() => {
+  if (!cachedOverlayEnabled) return;
+
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed) return;
 
@@ -432,10 +450,14 @@ setVocabCallback((word) => {
  * chrome.storage.onChanged, so each overlay render doesn't
  * need an async storage read.
  */
-chrome.storage.sync.get(["theme", "ttsEnabled"], (result) => {
-  if (result.theme) cachedTheme = result.theme as Theme;
-  if (result.ttsEnabled !== undefined) cachedTtsEnabled = result.ttsEnabled as boolean;
-});
+chrome.storage.sync.get(
+  ["theme", "ttsEnabled", "overlayEnabled"],
+  (result) => {
+    if (result.theme) cachedTheme = result.theme as Theme;
+    if (result.ttsEnabled !== undefined) cachedTtsEnabled = result.ttsEnabled as boolean;
+    if (result.overlayEnabled !== undefined) cachedOverlayEnabled = result.overlayEnabled as boolean;
+  },
+);
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "sync") return;
@@ -444,5 +466,8 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
   if (changes.ttsEnabled?.newValue !== undefined) {
     cachedTtsEnabled = changes.ttsEnabled.newValue as boolean;
+  }
+  if (changes.overlayEnabled?.newValue !== undefined) {
+    cachedOverlayEnabled = changes.overlayEnabled.newValue as boolean;
   }
 });

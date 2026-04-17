@@ -94,6 +94,18 @@ function fakeSelection(
 
 // ─── Tests ──────────────────────────────────────────────────────────
 
+/**
+ * Captured chrome.storage.onChanged listener registered by the content
+ * script at import time. Tests use this to flip cached settings (e.g.
+ * overlayEnabled) without rebuilding the module.
+ */
+let storageChangeListener:
+  | ((
+      changes: Record<string, { newValue?: unknown; oldValue?: unknown }>,
+      areaName: string,
+    ) => void)
+  | null = null;
+
 describe("content script", () => {
   // Load the content script once for all tests in this suite.
   // Its top-level listeners attach to `document` and `chrome.runtime`.
@@ -104,10 +116,20 @@ describe("content script", () => {
         return Promise.resolve({});
       },
     );
-    chrome.storage.onChanged.addListener.mockImplementation(() => {});
+    chrome.storage.onChanged.addListener.mockImplementation((listener: typeof storageChangeListener) => {
+      storageChangeListener = listener;
+    });
 
     await import("../../src/content/content");
   });
+
+  /** Mutates the content script's cached settings via the storage event. */
+  function setOverlayEnabled(value: boolean): void {
+    storageChangeListener?.(
+      { overlayEnabled: { newValue: value } },
+      "sync",
+    );
+  }
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -133,6 +155,9 @@ describe("content script", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     document.body.innerHTML = "";
+    // Reset overlayEnabled so a test that disabled it does not leak
+    // into the next case (the module-level cache lives across tests).
+    setOverlayEnabled(true);
   });
 
   // ─── mouseup handler ───────────────────────────────────────────
@@ -352,6 +377,87 @@ describe("content script", () => {
       );
 
       expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── overlayEnabled gate ──────────────────────────────────────
+  describe("overlayEnabled gate", () => {
+    it("ignores mouseup selections when overlayEnabled is false", () => {
+      setOverlayEnabled(false);
+      vi.spyOn(window, "getSelection").mockReturnValue(
+        fakeSelection("你好世界"),
+      );
+
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      vi.advanceTimersByTime(DEBOUNCE_MS + 50);
+
+      expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+      expect(mockShowOverlay).not.toHaveBeenCalled();
+    });
+
+    it("still processes CONTEXT_MENU_TRIGGER when overlayEnabled is false", () => {
+      setOverlayEnabled(false);
+      vi.spyOn(window, "getSelection").mockReturnValue(
+        fakeSelection("你好世界"),
+      );
+
+      chrome.runtime.onMessage.callListeners(
+        { type: "CONTEXT_MENU_TRIGGER", text: "你好世界" },
+        {},
+        vi.fn(),
+      );
+
+      expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "PINYIN_REQUEST",
+          text: "你好世界",
+        }),
+        expect.any(Function),
+      );
+    });
+
+    it("still processes COMMAND_TRIGGER when overlayEnabled is false", () => {
+      setOverlayEnabled(false);
+      vi.spyOn(window, "getSelection").mockReturnValue(
+        fakeSelection("你好"),
+      );
+
+      chrome.runtime.onMessage.callListeners(
+        { type: "COMMAND_TRIGGER" },
+        {},
+        vi.fn(),
+      );
+
+      expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "PINYIN_REQUEST",
+          text: "你好",
+        }),
+        expect.any(Function),
+      );
+    });
+
+    it("re-enables mouseup processing when toggled back on", () => {
+      setOverlayEnabled(false);
+      vi.spyOn(window, "getSelection").mockReturnValue(
+        fakeSelection("你好"),
+      );
+
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      vi.advanceTimersByTime(DEBOUNCE_MS + 50);
+      expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+
+      setOverlayEnabled(true);
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      vi.advanceTimersByTime(DEBOUNCE_MS + 50);
+
+      expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "PINYIN_REQUEST",
+          text: "你好",
+        }),
+        expect.any(Function),
+      );
     });
   });
 });

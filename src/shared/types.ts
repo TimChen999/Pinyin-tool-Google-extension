@@ -151,6 +151,14 @@ export interface ExtensionSettings {
   theme: Theme;
   llmEnabled: boolean;
   ttsEnabled: boolean;
+  /**
+   * When false, the content script ignores plain mouseup-driven text
+   * selections (the "auto" path). The right-click "Show Pinyin &
+   * Translation" menu item and the Alt+Shift+P keyboard shortcut
+   * remain functional so the user can still trigger the overlay
+   * on demand. Defaults to true.
+   */
+  overlayEnabled: boolean;
 }
 
 /**

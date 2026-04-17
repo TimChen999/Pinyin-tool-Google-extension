@@ -68,6 +68,7 @@ function buildPopupDOM(): void {
 
       <input type="checkbox" id="llm-enabled" />
       <input type="checkbox" id="tts-enabled" />
+      <input type="checkbox" id="overlay-enabled" />
 
       <button id="save-btn">Save Settings</button>
       <div id="status"></div>
@@ -96,6 +97,7 @@ const el = {
   get fontSizeLabel() { return document.getElementById("font-size-label") as HTMLSpanElement; },
   get theme() { return document.getElementById("theme") as HTMLSelectElement; },
   get llmEnabled() { return document.getElementById("llm-enabled") as HTMLInputElement; },
+  get overlayEnabled() { return document.getElementById("overlay-enabled") as HTMLInputElement; },
   get saveBtn() { return document.getElementById("save-btn") as HTMLButtonElement; },
   get status() { return document.getElementById("status") as HTMLDivElement; },
   pinyinRadio(value: string) {
@@ -176,6 +178,17 @@ describe("popup settings", () => {
       expect(el.fontSize.value).toBe("16");
       expect(el.theme.value).toBe("auto");
       expect(el.llmEnabled.checked).toBe(true);
+      expect(el.overlayEnabled.checked).toBe(true);
+    });
+
+    it("loads overlayEnabled=false from storage", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ overlayEnabled: false }),
+      );
+
+      await loadPopup();
+
+      expect(el.overlayEnabled.checked).toBe(false);
     });
 
     it("populates model dropdown from provider preset", async () => {
@@ -271,6 +284,39 @@ describe("popup settings", () => {
       const saved = chrome.storage.sync.set.mock.calls[0][0];
       expect(saved.provider).toBe("gemini");
       expect(saved.apiKey).toBe("AIza-test-key-valid-length");
+    });
+
+    it("persists overlayEnabled when toggled off", async () => {
+      await loadPopup();
+
+      el.apiKey.value = "sk-valid-test-key-123";
+      el.overlayEnabled.checked = false;
+      el.saveBtn.click();
+
+      await vi.waitFor(() =>
+        expect(chrome.storage.sync.set).toHaveBeenCalled(),
+      );
+
+      const saved = chrome.storage.sync.set.mock.calls[0][0];
+      expect(saved.overlayEnabled).toBe(false);
+    });
+
+    it("persists overlayEnabled=true after a load+save round-trip", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ overlayEnabled: false, apiKey: "sk-valid-test-key-123" }),
+      );
+      await loadPopup();
+
+      // User flips it back on.
+      el.overlayEnabled.checked = true;
+      el.saveBtn.click();
+
+      await vi.waitFor(() =>
+        expect(chrome.storage.sync.set).toHaveBeenCalled(),
+      );
+
+      const saved = chrome.storage.sync.set.mock.calls[0][0];
+      expect(saved.overlayEnabled).toBe(true);
     });
 
     it("shows success message after save", async () => {

@@ -84,6 +84,7 @@ function buildPopupDOM(): void {
 
       <input type="checkbox" id="llm-enabled" />
       <input type="checkbox" id="tts-enabled" />
+      <input type="checkbox" id="overlay-enabled" />
 
       <button id="save-btn">Save Settings</button>
       <div id="status"></div>
