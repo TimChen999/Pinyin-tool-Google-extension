@@ -59,7 +59,7 @@ describe("queryLLM", () => {
         }),
       });
 
-      await queryLLM("你好", "context here", openaiConfig);
+      await queryLLM("你好", "context here", openaiConfig, "toneMarks");
 
       expect(fetch).toHaveBeenCalledOnce();
       const [url, options] = (fetch as any).mock.calls[0];
@@ -82,7 +82,7 @@ describe("queryLLM", () => {
           choices: [{ message: { content: JSON.stringify(sampleLLMData) } }],
         }),
       });
-      const result = await queryLLM("你好", "context", openaiConfig);
+      const result = await queryLLM("你好", "context", openaiConfig, "toneMarks");
       expect(result.ok).toBe(true);
       expect((result as Extract<LLMResult, { ok: true }>).data).toEqual(sampleLLMData);
     });
@@ -97,7 +97,7 @@ describe("queryLLM", () => {
         }),
       });
 
-      await queryLLM("你好", "context", ollamaConfig);
+      await queryLLM("你好", "context", ollamaConfig, "toneMarks");
 
       const [url, options] = (fetch as any).mock.calls[0];
       expect(url).toBe("http://localhost:11434/v1/chat/completions");
@@ -116,7 +116,7 @@ describe("queryLLM", () => {
         }),
       });
 
-      await queryLLM("你好", "context", geminiConfig);
+      await queryLLM("你好", "context", geminiConfig, "toneMarks");
 
       expect(fetch).toHaveBeenCalledOnce();
       const [url, options] = (fetch as any).mock.calls[0];
@@ -140,21 +140,25 @@ describe("queryLLM", () => {
           ],
         }),
       });
-      const result = await queryLLM("你好", "context", geminiConfig);
+      const result = await queryLLM("你好", "context", geminiConfig, "toneMarks");
       expect(result.ok).toBe(true);
       expect((result as Extract<LLMResult, { ok: true }>).data).toEqual(sampleLLMData);
     });
   });
 
   describe("error handling (all providers)", () => {
+    // The retry loop runs RETRY_DELAYS_MS.length + 1 = 3 attempts on
+    // NETWORK_ERROR, sleeping ~800ms then ~2400ms (with jitter) between
+    // attempts, so the worst-case wall time is ~3.5s. Bumping these
+    // tests' timeouts above the vitest default avoids spurious flakes.
     it("returns NETWORK_ERROR on network error", async () => {
       (fetch as any).mockRejectedValue(new Error("Network error"));
-      const result = await queryLLM("你好", "context", openaiConfig);
+      const result = await queryLLM("你好", "context", openaiConfig, "toneMarks");
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.code).toBe("NETWORK_ERROR");
       }
-    });
+    }, 15_000);
 
     it("returns AUTH_FAILED on 401 response", async () => {
       (fetch as any).mockResolvedValue({
@@ -163,7 +167,7 @@ describe("queryLLM", () => {
         statusText: "Unauthorized",
         text: async () => "Unauthorized",
       });
-      const result = await queryLLM("你好", "context", openaiConfig);
+      const result = await queryLLM("你好", "context", openaiConfig, "toneMarks");
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.code).toBe("AUTH_FAILED");
@@ -177,16 +181,21 @@ describe("queryLLM", () => {
         statusText: "Too Many Requests",
         text: async () => "Rate limited",
       });
-      const result = await queryLLM("你好", "context", openaiConfig);
+      const result = await queryLLM("你好", "context", openaiConfig, "toneMarks");
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.code).toBe("RATE_LIMITED");
       }
     });
 
-    it("retries once on 5xx error then succeeds", async () => {
+    it("retries on 5xx error and succeeds on the next attempt", async () => {
       (fetch as any)
-        .mockResolvedValueOnce({ ok: false, status: 500 })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 500,
+          statusText: "Internal Server Error",
+          text: async () => "Internal Server Error",
+        })
         .mockResolvedValueOnce({
           ok: true,
           json: async () => ({
@@ -194,29 +203,30 @@ describe("queryLLM", () => {
           }),
         });
 
-      const result = await queryLLM("你好", "context", openaiConfig);
+      const result = await queryLLM("你好", "context", openaiConfig, "toneMarks");
       expect(fetch).toHaveBeenCalledTimes(2);
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.data).toEqual(sampleLLMData);
       }
-    });
+    }, 15_000);
 
-    it("returns SERVER_ERROR when 5xx persists after retry", async () => {
-      (fetch as any)
-        .mockResolvedValueOnce({ ok: false, status: 502 })
-        .mockResolvedValueOnce({
-          ok: false,
-          status: 502,
-          statusText: "Bad Gateway",
-          text: async () => "Bad Gateway",
-        });
-      const result = await queryLLM("你好", "context", openaiConfig);
+    it("returns SERVER_ERROR when 5xx persists across all retry attempts", async () => {
+      // mockResolvedValue (not Once) so every one of the 3 attempts
+      // sees the same 502 -- the loop exhausts retries and surfaces
+      // the last classified error.
+      (fetch as any).mockResolvedValue({
+        ok: false,
+        status: 502,
+        statusText: "Bad Gateway",
+        text: async () => "Bad Gateway",
+      });
+      const result = await queryLLM("你好", "context", openaiConfig, "toneMarks");
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.code).toBe("SERVER_ERROR");
       }
-    });
+    }, 15_000);
 
     it("returns INVALID_RESPONSE when response has invalid structure", async () => {
       (fetch as any).mockResolvedValue({
@@ -227,7 +237,7 @@ describe("queryLLM", () => {
           ],
         }),
       });
-      const result = await queryLLM("你好", "context", openaiConfig);
+      const result = await queryLLM("你好", "context", openaiConfig, "toneMarks");
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.code).toBe("INVALID_RESPONSE");
@@ -241,22 +251,22 @@ describe("queryLLM", () => {
           choices: [{ message: { content: "not json" } }],
         }),
       });
-      const result = await queryLLM("你好", "context", openaiConfig);
+      const result = await queryLLM("你好", "context", openaiConfig, "toneMarks");
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.code).toBe("INVALID_RESPONSE");
       }
     });
 
-    it("returns TIMEOUT when request exceeds LLM_TIMEOUT_MS", async () => {
+    it("returns TIMEOUT when every attempt aborts", async () => {
       const abortError = new DOMException("The operation was aborted.", "AbortError");
       (fetch as any).mockRejectedValue(abortError);
-      const result = await queryLLM("你好", "context", openaiConfig);
+      const result = await queryLLM("你好", "context", openaiConfig, "toneMarks");
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.code).toBe("TIMEOUT");
       }
-    });
+    }, 15_000);
   });
 });
 

@@ -16,7 +16,13 @@
  */
 
 import { containsChinese, extractSurroundingContext } from "../shared/chinese-detect";
-import { DEBOUNCE_MS, MAX_SELECTION_LENGTH } from "../shared/constants";
+import {
+  DEBOUNCE_MS,
+  KEEPALIVE_PORT_NAME,
+  LLM_TIMEOUT_MS,
+  MAX_SELECTION_LENGTH,
+  RETRY_DELAYS_MS,
+} from "../shared/constants";
 import type {
   ExtensionMessage,
   PinyinResponseLocal,
@@ -45,6 +51,72 @@ let cachedTtsEnabled = true;
 
 /** Viewport rect from the most recent OCR area selection, awaiting capture result. */
 let pendingOCRRect: { x: number; y: number; width: number; height: number } | null = null;
+
+// ─── Service-worker keep-alive ─────────────────────────────────────
+
+/**
+ * One open chrome.runtime.Port per outstanding LLM request, indexed by
+ * the request id. Holding the port open prevents the MV3 service worker
+ * from being suspended mid-fetch (which used to surface as silently
+ * dropped translations after ~30s of idle time).
+ *
+ * Each entry also owns a safety timer that disconnects the port if no
+ * PINYIN_RESPONSE_LLM / PINYIN_ERROR(llm) ever comes back -- e.g. when
+ * settings.llmEnabled is false on the SW side, no Phase-2 message is
+ * ever emitted. The bound covers the worst-case retry budget:
+ *   3 attempts × LLM_TIMEOUT_MS + sum(RETRY_DELAYS_MS) + slack
+ */
+const KEEPALIVE_SAFETY_MS =
+  3 * LLM_TIMEOUT_MS + RETRY_DELAYS_MS.reduce((a, b) => a + b, 0) + 5_000;
+
+interface KeepalivePort {
+  port: chrome.runtime.Port;
+  safety: ReturnType<typeof setTimeout>;
+}
+const keepalivePorts = new Map<number, KeepalivePort>();
+
+/**
+ * Opens a port and registers it under the given request id. The port
+ * carries no traffic; its mere existence keeps the SW awake. The
+ * safety timer disconnects it after KEEPALIVE_SAFETY_MS as a leak
+ * guard for the no-LLM-message edge case.
+ */
+function openKeepalivePort(requestId: number): void {
+  let port: chrome.runtime.Port;
+  try {
+    port = chrome.runtime.connect({ name: KEEPALIVE_PORT_NAME });
+  } catch {
+    // Extension reload can transiently make connect throw.
+    return;
+  }
+  const safety = setTimeout(() => closeKeepalivePort(requestId), KEEPALIVE_SAFETY_MS);
+  keepalivePorts.set(requestId, { port, safety });
+  port.onDisconnect.addListener(() => {
+    const entry = keepalivePorts.get(requestId);
+    if (!entry) return;
+    clearTimeout(entry.safety);
+    keepalivePorts.delete(requestId);
+  });
+}
+
+function closeKeepalivePort(requestId: number): void {
+  const entry = keepalivePorts.get(requestId);
+  if (!entry) return;
+  clearTimeout(entry.safety);
+  try { entry.port.disconnect(); } catch { /* already gone */ }
+  keepalivePorts.delete(requestId);
+}
+
+/**
+ * Closes the oldest open keep-alive port. PINYIN_RESPONSE_LLM /
+ * PINYIN_ERROR messages don't carry a request id, so we use FIFO
+ * order: the SW processes per-tab requests in order, so the oldest
+ * open port corresponds to the earliest still-pending Phase-2 reply.
+ */
+function closeOldestKeepalivePort(): void {
+  const next = keepalivePorts.keys().next();
+  if (!next.done) closeKeepalivePort(next.value);
+}
 
 // ─── Debounce utility ──────────────────────────────────────────────
 
@@ -87,6 +159,10 @@ function processSelection(text: string, rect: DOMRect, context: string): void {
     : text;
 
   const requestId = ++currentRequestId;
+
+  // Open the keep-alive port *before* sending so the SW can't go idle
+  // between sendMessage and the start of its async LLM path.
+  openKeepalivePort(requestId);
 
   chrome.runtime.sendMessage(
     {
@@ -153,11 +229,13 @@ chrome.runtime.onMessage.addListener(
     switch (message.type) {
       case "PINYIN_RESPONSE_LLM":
         updateOverlay(message.words, message.translation, cachedTtsEnabled);
+        closeOldestKeepalivePort();
         break;
 
       case "PINYIN_ERROR":
         if (message.phase === "llm") {
           showOverlayError(message.error);
+          closeOldestKeepalivePort();
         }
         break;
 

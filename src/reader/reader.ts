@@ -12,9 +12,15 @@
  */
 
 import { convertToPinyin } from "../background/pinyin-service";
-import { queryLLM } from "../background/llm-client";
-import { hashText, getFromCache, saveToCache } from "../background/cache";
-import { containsChinese } from "../shared/chinese-detect";
+import { queryLLM, type LLMResult } from "../background/llm-client";
+import {
+  hashText,
+  getFromCache,
+  getCachedError,
+  saveToCache,
+  saveErrorToCache,
+} from "../background/cache";
+import { containsChinese, sentenceContextAround } from "../shared/chinese-detect";
 import {
   showOverlay,
   updateOverlay,
@@ -56,6 +62,14 @@ let currentRequestId = 0;
 let autosaveTimer: ReturnType<typeof setInterval> | null = null;
 let debounceSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let readerSettings: ReaderSettings = { ...DEFAULT_READER_SETTINGS };
+
+/**
+ * Map<cacheKey, in-flight queryLLM Promise>. Mirrors the dedup map in
+ * the background service worker so that rapid re-renders, scroll
+ * relocations, and repeat selections in the reader don't fire multiple
+ * concurrent calls for the same text+context. Cleared in .finally().
+ */
+const inflightLLM = new Map<string, Promise<LLMResult>>();
 
 // ─── DOM references ────────────────────────────────────────────────
 
@@ -108,7 +122,8 @@ export async function getFileHash(file: File): Promise<string> {
 
 export async function loadReaderSettings(): Promise<ReaderSettings> {
   const result = await chrome.storage.sync.get("readerSettings");
-  return { ...DEFAULT_READER_SETTINGS, ...result.readerSettings };
+  const stored = result.readerSettings as Partial<ReaderSettings> | undefined;
+  return { ...DEFAULT_READER_SETTINGS, ...stored };
 }
 
 async function saveReaderSettings(settings: ReaderSettings): Promise<void> {
@@ -130,13 +145,14 @@ export async function saveReadingState(state: ReadingState): Promise<void> {
 export async function loadReadingState(
   fileHash: string,
 ): Promise<ReadingState | null> {
-  const result = await chrome.storage.local.get(`reader_state_${fileHash}`);
-  return result[`reader_state_${fileHash}`] ?? null;
+  const key = `reader_state_${fileHash}`;
+  const result = await chrome.storage.local.get(key);
+  return (result[key] as ReadingState | undefined) ?? null;
 }
 
 export async function getRecentFiles(): Promise<ReadingState[]> {
   const result = await chrome.storage.local.get("reader_recent");
-  return result.reader_recent ?? [];
+  return (result.reader_recent as ReadingState[] | undefined) ?? [];
 }
 
 export async function updateRecentFiles(state: ReadingState): Promise<void> {
@@ -288,13 +304,25 @@ async function processSelection(
 
   if (!settings.llmEnabled || !readerSettings.pinyinEnabled) return;
 
-  const context = currentRenderer?.getVisibleText() ?? "";
+  // Sentence-bounded context: pivot off the actual selection inside the
+  // visible page text so the prompt carries only the surrounding
+  // sentence(s) instead of the whole spine. Stabilizes the cache key
+  // (scroll no longer perturbs the hash) and shrinks prefill cost.
+  const visible = currentRenderer?.getVisibleText() ?? "";
+  const context = sentenceContextAround(visible, truncated);
   const cacheKey = await hashText(truncated + context);
-  const cached = await getFromCache(cacheKey);
 
+  const cached = await getFromCache(cacheKey);
   if (cached) {
     if (requestId !== currentRequestId) return;
     updateOverlay(cached.words, cached.translation, settings.ttsEnabled);
+    return;
+  }
+
+  const cachedErr = await getCachedError(cacheKey);
+  if (cachedErr) {
+    if (requestId !== currentRequestId) return;
+    showOverlayError(cachedErr.message);
     return;
   }
 
@@ -313,16 +341,47 @@ async function processSelection(
     temperature: LLM_TEMPERATURE,
   };
 
-  const result = await queryLLM(truncated, context, config);
+  const result = await dedupedQueryLLM(
+    cacheKey,
+    truncated,
+    context,
+    config,
+    settings.pinyinStyle,
+  );
 
   if (requestId !== currentRequestId) return;
 
   if (result.ok) {
-    await saveToCache(cacheKey, result.data);
+    if (!result.data.partial) {
+      await saveToCache(cacheKey, result.data);
+    }
     updateOverlay(result.data.words, result.data.translation, settings.ttsEnabled);
   } else {
+    await saveErrorToCache(cacheKey, result.error);
     showOverlayError(result.error.message);
   }
+}
+
+/**
+ * Dedup wrapper around queryLLM that shares one in-flight Promise per
+ * cacheKey. Prevents the reader from firing N concurrent identical
+ * requests when the user re-clicks during a slow first response.
+ */
+function dedupedQueryLLM(
+  cacheKey: string,
+  text: string,
+  context: string,
+  config: LLMConfig,
+  pinyinStyle: ExtensionSettings["pinyinStyle"],
+): Promise<LLMResult> {
+  const existing = inflightLLM.get(cacheKey);
+  if (existing) return existing;
+
+  const p = queryLLM(text, context, config, pinyinStyle).finally(() => {
+    inflightLLM.delete(cacheKey);
+  });
+  inflightLLM.set(cacheKey, p);
+  return p;
 }
 
 // ─── Forward iframe key events to parent navigation ────────────────

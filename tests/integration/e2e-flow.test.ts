@@ -301,7 +301,7 @@ describe("provider switching", () => {
       }),
     });
 
-    await queryLLM("你好", "context", openaiConfig);
+    await queryLLM("你好", "context", openaiConfig, "toneMarks");
 
     const [url] = (fetch as any).mock.calls[0];
     expect(url).toContain("/chat/completions");
@@ -325,7 +325,7 @@ describe("provider switching", () => {
       }),
     });
 
-    await queryLLM("你好", "context", geminiConfig);
+    await queryLLM("你好", "context", geminiConfig, "toneMarks");
 
     const [url] = (fetch as any).mock.calls[0];
     expect(url).toContain("generateContent");
@@ -349,7 +349,7 @@ describe("provider switching", () => {
       }),
     });
 
-    await queryLLM("你好", "context", ollamaConfig);
+    await queryLLM("你好", "context", ollamaConfig, "toneMarks");
 
     const [, options] = (fetch as any).mock.calls[0];
     expect(options.headers["Authorization"]).toBeUndefined();
@@ -363,7 +363,7 @@ describe("provider switching", () => {
       }),
     });
 
-    await queryLLM("你好", "context", openaiConfig);
+    await queryLLM("你好", "context", openaiConfig, "toneMarks");
 
     const [, options] = (fetch as any).mock.calls[0];
     const body = JSON.parse(options.body);
@@ -388,7 +388,7 @@ describe("error propagation", () => {
   it("LLM network error returns typed error and overlay shows message", async () => {
     (fetch as any).mockRejectedValue(new Error("Network error"));
 
-    const result = await queryLLM("你好", "context", openaiConfig);
+    const result = await queryLLM("你好", "context", openaiConfig, "toneMarks");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("NETWORK_ERROR");
@@ -414,7 +414,7 @@ describe("error propagation", () => {
       }),
     });
 
-    const result = await queryLLM("你好", "context", openaiConfig);
+    const result = await queryLLM("你好", "context", openaiConfig, "toneMarks");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("INVALID_RESPONSE");
@@ -654,7 +654,7 @@ describe("full system round-trip", () => {
       }),
     });
 
-    const llmResult = await queryLLM(text, context, openaiConfig);
+    const llmResult = await queryLLM(text, context, openaiConfig, "toneMarks");
     expect(llmResult.ok).toBe(true);
     if (!llmResult.ok) throw new Error("Expected ok result");
     expect(validateLLMResponse(llmResult.data)).toBe(true);

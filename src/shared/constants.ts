@@ -106,38 +106,84 @@ export const VOCAB_STOP_WORDS = new Set([
 ]);
 
 // ─── LLM Request Configuration ────────────────────────────────────
-/** Abort controller timeout for each LLM fetch call. (SPEC.md Section 6) */
-export const LLM_TIMEOUT_MS = 10_000; // 10 seconds
-export const LLM_MAX_TOKENS = 2048;
+/**
+ * Abort controller timeout applied per-attempt (not per-call).
+ * Bumped from 10s -> 45s because the previous value frequently aborted
+ * still-streaming responses on cold-start hosted models. With smarter
+ * retries (RETRY_DELAYS_MS) the worst-case end-to-end budget is
+ * 3 * LLM_TIMEOUT_MS + sum(RETRY_DELAYS_MS) ≈ 138s. (SPEC.md Section 6)
+ */
+export const LLM_TIMEOUT_MS = 45_000;
+/**
+ * Output-token cap. Bumped from 2048 -> 4096 so longer paragraphs with
+ * per-word definitions + a translation no longer truncate mid-JSON
+ * (which used to surface as INVALID_RESPONSE / "spits nothing").
+ */
+export const LLM_MAX_TOKENS = 4096;
 /** Zero temperature for deterministic, consistent pinyin output. */
 export const LLM_TEMPERATURE = 0;
+
+/**
+ * Backoff delays (ms) between LLM retry attempts.
+ * Length determines retry count: N delays => N+1 total attempts.
+ * Each delay is multiplied by a small jitter factor at call time.
+ */
+export const RETRY_DELAYS_MS = [800, 2_400];
+
+/**
+ * Per-error-code TTL for the negative cache. Only entries listed here
+ * are persisted on failure; every other error code is *not* cached, so
+ * the next identical request immediately re-attempts.
+ * Rate-limit replies are cached briefly to avoid hammering the provider
+ * while the user re-clicks.
+ */
+export const NEGATIVE_CACHE_TTL_MS: Partial<Record<string, number>> = {
+  RATE_LIMITED: 30_000,
+};
+
+/**
+ * Name used for the chrome.runtime.connect port that keeps the MV3
+ * service worker alive for the duration of a long LLM request.
+ * The port carries no traffic; its mere existence prevents suspension.
+ */
+export const KEEPALIVE_PORT_NAME = "llm-keepalive";
 
 // ─── Selection Handling ────────────────────────────────────────────
 /** Texts longer than this are truncated before sending to the LLM. (SPEC.md Section 10.2) */
 export const MAX_SELECTION_LENGTH = 500;
+/**
+ * Hard cap on the surrounding-context string sent to the LLM.
+ * Used by sentenceContextAround() as the absolute upper bound after
+ * sentence-boundary trimming, keeping prefill latency predictable.
+ */
+export const MAX_CONTEXT_LENGTH = 400;
 /** Mouseup debounce to avoid firing during click-drag. (SPEC.md Section 10.4) */
 export const DEBOUNCE_MS = 100;
 
 // ─── LLM System Prompt ────────────────────────────────────────────
 /**
  * The system instruction sent to every LLM provider. Defines the
- * expected JSON output format with word segmentation, pinyin,
- * definitions, and sentence translation.
- * Edit this to change output format, detail level, or target language.
+ * expected JSON output format with word segmentation, definitions,
+ * and sentence translation.
+ *
+ * Pinyin is intentionally omitted from the requested schema: the local
+ * pinyin-pro pipeline already produces accurate, polyphone-aware pinyin
+ * for the LLM-segmented words, so asking the model to repeat that work
+ * roughly doubles output tokens and end-to-end latency for no quality
+ * win. The llm-client backfills pinyin per word after parsing.
+ *
  * (SPEC.md Section 6 "Prompt Engineering")
  */
 export const SYSTEM_PROMPT = `You are a Chinese language assistant integrated into a browser extension.
 Given Chinese text and its surrounding context, you must:
 1. Segment the text into individual words (not characters).
-2. Provide the correct pinyin for each word, using tone marks.
-   For polyphonic characters, use the surrounding context to choose the correct reading.
-3. Provide a concise English definition for each word as it is used in this context.
-4. Provide a natural English translation of the full text.
+2. Provide a concise English definition for each word as it is used in this context.
+3. Provide a natural English translation of the full text.
 
 Respond ONLY with valid JSON in this exact format:
 {
   "words": [
-    { "chars": "<characters>", "pinyin": "<pinyin with tone marks>", "definition": "<contextual English definition>" }
+    { "chars": "<characters>", "definition": "<contextual English definition>" }
   ],
   "translation": "<full English translation>"
 }`;

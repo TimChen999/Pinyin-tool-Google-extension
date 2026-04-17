@@ -10,7 +10,9 @@ vi.mock("../../src/background/vocab-store", () => ({
 vi.mock("../../src/background/cache", () => ({
   hashText: vi.fn(() => Promise.resolve("mock-hash")),
   getFromCache: vi.fn(() => Promise.resolve(null)),
+  getCachedError: vi.fn(() => Promise.resolve(null)),
   saveToCache: vi.fn(() => Promise.resolve()),
+  saveErrorToCache: vi.fn(() => Promise.resolve()),
   evictExpiredEntries: vi.fn(() => Promise.resolve()),
   clearCache: vi.fn(() => Promise.resolve()),
 }));

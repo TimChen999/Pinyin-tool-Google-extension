@@ -15,19 +15,35 @@
  *      IMPLEMENTATION_GUIDE.md Step 4 for implementation details.
  */
 
-import type { LLMConfig, WordData, APIStyle } from "../shared/types";
+import type { LLMConfig, WordData, APIStyle, PinyinStyle } from "../shared/types";
 import {
   LLM_TIMEOUT_MS,
   SYSTEM_PROMPT,
   PROVIDER_PRESETS,
+  RETRY_DELAYS_MS,
 } from "../shared/constants";
+import { convertToPinyin } from "./pinyin-service";
 
 // ─── LLM Response Type ─────────────────────────────────────────────
 
-/** Parsed LLM output: word-segmented pinyin with definitions + translation. */
+/**
+ * Parsed LLM output: word-segmented definitions + translation.
+ *
+ * The slimmed prompt no longer asks the model for pinyin, so the raw
+ * parse may carry words missing `pinyin` and (under JSON salvage) the
+ * tail entry may also be missing `definition`. queryLLM() backfills
+ * both fields before returning so downstream consumers (overlay,
+ * cache) still see a fully populated Required<WordData>[] -- the
+ * wire/cache shape is unchanged.
+ *
+ * `partial` is set when the response was salvaged from a truncated /
+ * malformed JSON body. Partial responses are still rendered to the
+ * user but are never written to the positive cache.
+ */
 export interface LLMResponse {
   words: Required<WordData>[];
   translation: string;
+  partial?: boolean;
 }
 
 export type LLMErrorCode =
@@ -52,14 +68,21 @@ export type LLMResult =
 
 /**
  * Type guard that validates the shape of parsed LLM JSON.
- * Ensures `words` is an array and `translation` is a string so
- * downstream consumers can trust the data without extra checks.
+ *
+ * Required: `words` is an array and `translation` is a string. Each
+ * word entry must at least have a string `chars` (definition is
+ * permitted to be missing / non-string and is normalized later, since
+ * truncated responses sometimes drop fields off the tail entry).
  */
 export function validateLLMResponse(data: unknown): data is LLMResponse {
   if (!data || typeof data !== "object") return false;
   const obj = data as Record<string, unknown>;
   if (!Array.isArray(obj.words)) return false;
   if (typeof obj.translation !== "string") return false;
+  for (const w of obj.words) {
+    if (!w || typeof w !== "object") return false;
+    if (typeof (w as Record<string, unknown>).chars !== "string") return false;
+  }
   return true;
 }
 
@@ -136,49 +159,219 @@ function buildRequest(
 // ─── Response Parser (Adapter) ──────────────────────────────────────
 
 /**
- * Extracts and JSON-parses the LLM's text output from the
- * provider-specific response envelope.
+ * Pulls the model's raw text payload out of the provider-specific
+ * envelope without attempting any JSON parsing.
  *
  * OpenAI: data.choices[0].message.content
  * Gemini: data.candidates[0].content.parts[0].text
  */
-function parseResponse(data: unknown, apiStyle: APIStyle): unknown {
+function extractRawText(data: unknown, apiStyle: APIStyle): string | null {
   const obj = data as Record<string, unknown>;
-  let raw: string | undefined;
 
   if (apiStyle === "gemini") {
     const candidates = obj.candidates as Array<Record<string, unknown>> | undefined;
-    const text = (
-      candidates?.[0]?.content as Record<string, unknown> | undefined
-    )?.parts as Array<Record<string, unknown>> | undefined;
-    raw = text?.[0]?.text as string | undefined;
-  } else {
-    // OpenAI-compatible
-    const choices = obj.choices as Array<Record<string, unknown>> | undefined;
-    const message = choices?.[0]?.message as Record<string, unknown> | undefined;
-    raw = message?.content as string | undefined;
+    const content = candidates?.[0]?.content as Record<string, unknown> | undefined;
+    const parts = content?.parts as Array<Record<string, unknown>> | undefined;
+    const text = parts?.[0]?.text;
+    return typeof text === "string" ? text : null;
   }
 
-  if (!raw) return null;
+  // OpenAI-compatible
+  const choices = obj.choices as Array<Record<string, unknown>> | undefined;
+  const message = choices?.[0]?.message as Record<string, unknown> | undefined;
+  const content = message?.content;
+  return typeof content === "string" ? content : null;
+}
 
+/**
+ * Tolerant JSON parser. Tries `JSON.parse` first; on failure attempts
+ * a structural salvage that closes any unbalanced brackets and trims
+ * any trailing partial entry. Returns `partial: true` whenever the
+ * salvage path succeeded so the caller can suppress positive caching
+ * and (optionally) flag the result downstream.
+ */
+function tryParseJson(raw: string): { value: unknown | null; partial: boolean } {
   try {
-    return JSON.parse(raw);
-  } catch (err) {
-    console.error("[LLM-client] JSON.parse failed. Raw text (%d chars):", raw.length, raw.slice(0, 500));
-    console.error("[LLM-client] Parse error:", err);
+    return { value: JSON.parse(raw), partial: false };
+  } catch {
+    const salvaged = salvageJson(raw);
+    if (salvaged !== null) {
+      console.warn("[LLM-client] Salvaged truncated JSON (orig %d chars).", raw.length);
+    } else {
+      console.error("[LLM-client] JSON.parse + salvage failed. Raw (%d chars):", raw.length, raw.slice(0, 500));
+    }
+    return { value: salvaged, partial: salvaged !== null };
+  }
+}
+
+/**
+ * Best-effort JSON repair for truncated or malformed model output.
+ *
+ * Walks the string while tracking the open-brace stack and the most
+ * recent "safe checkpoint" -- a position immediately after a clean
+ * closing brace. On structural failure (unbalanced or unterminated
+ * string) we truncate to the last checkpoint, append the missing
+ * closing brackets, and re-parse. If the salvaged shape is missing
+ * `translation` (because the response was cut off before that key),
+ * an empty translation is injected so downstream validation passes.
+ *
+ * Returns null if nothing parseable can be recovered.
+ */
+function salvageJson(raw: string): unknown | null {
+  let inStr = false;
+  let esc = false;
+  const stack: string[] = [];
+  let lastSafe = -1;
+
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+    if (esc) { esc = false; continue; }
+    if (inStr) {
+      if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') { inStr = true; continue; }
+    if (c === "[" || c === "{") {
+      stack.push(c === "[" ? "]" : "}");
+    } else if (c === "]" || c === "}") {
+      if (stack.length === 0 || stack[stack.length - 1] !== c) {
+        // Structurally broken in a way we can't fix.
+        break;
+      }
+      stack.pop();
+      lastSafe = i + 1;
+    }
+  }
+
+  if (lastSafe <= 0) return null;
+
+  // Re-walk the safe prefix to recover the bracket stack at that point,
+  // since the loop above may have continued past it before failing.
+  const stackAt: string[] = [];
+  let inStr2 = false;
+  let esc2 = false;
+  for (let i = 0; i < lastSafe; i++) {
+    const c = raw[i];
+    if (esc2) { esc2 = false; continue; }
+    if (inStr2) {
+      if (c === "\\") esc2 = true;
+      else if (c === '"') inStr2 = false;
+      continue;
+    }
+    if (c === '"') { inStr2 = true; continue; }
+    if (c === "[" || c === "{") {
+      stackAt.push(c === "[" ? "]" : "}");
+    } else if (c === "]" || c === "}") {
+      stackAt.pop();
+    }
+  }
+
+  let cur = raw.slice(0, lastSafe).replace(/[,\s]+$/, "");
+  while (stackAt.length > 0) {
+    const close = stackAt.pop();
+    if (close) cur += close;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cur);
+  } catch {
     return null;
   }
+
+  // Inject an empty translation if the truncation cut off before the
+  // translation key was emitted; the caller will mark this as partial.
+  if (parsed && typeof parsed === "object") {
+    const obj = parsed as Record<string, unknown>;
+    if (Array.isArray(obj.words) && typeof obj.translation !== "string") {
+      obj.translation = "";
+    }
+  }
+  return parsed;
+}
+
+// ─── Word Normalization ────────────────────────────────────────────
+
+/**
+ * Promotes raw parsed words to fully populated Required<WordData>[]:
+ *  - If `pinyin` is missing, derive it locally via convertToPinyin().
+ *    The slimmed system prompt no longer asks the model for pinyin
+ *    (token / latency optimization); the local pinyin-pro pipeline
+ *    is already excellent at polyphone-aware segmentation.
+ *  - If `definition` is missing or non-string (which can happen on
+ *    the tail entry after JSON salvage), substitute an empty string
+ *    so downstream consumers can rely on a uniform shape.
+ *
+ * The wire format and cache shape are therefore unchanged from before
+ * the slimmed-prompt change.
+ */
+function normalizeWords(
+  words: WordData[],
+  style: PinyinStyle,
+): Required<WordData>[] {
+  return words.map((w) => {
+    let pinyin = typeof w.pinyin === "string" ? w.pinyin : "";
+    if (!pinyin) {
+      const segs = convertToPinyin(w.chars, style);
+      pinyin = segs.map((s) => s.pinyin).join(" ").trim();
+    }
+    const definition = typeof w.definition === "string" ? w.definition : "";
+    return { chars: w.chars, pinyin, definition };
+  });
+}
+
+// ─── Logging Helpers ────────────────────────────────────────────────
+
+/** Strip the Gemini `?key=...` query param from a URL before logging. */
+function redactUrl(url: string): string {
+  return url.replace(/([?&]key=)[^&]+/i, "$1***");
+}
+
+/**
+ * Single-line JSON telemetry record emitted at the end of every
+ * attempt (success or failure). No PII, no API key. Designed to be
+ * grep-able from chrome://extensions devtools logs.
+ */
+interface TelemetryRecord {
+  provider: string;
+  model: string;
+  attempt: number;
+  status: string;
+  latencyMs: number;
+  partial: boolean;
+  textLen: number;
+  contextLen: number;
+}
+function logTelemetry(rec: TelemetryRecord): void {
+  console.log("[LLM-telemetry]", JSON.stringify(rec));
 }
 
 // ─── Main Entry Point ───────────────────────────────────────────────
 
+/** Error codes that a transient failure can recover from on retry. */
+const RETRYABLE_CODES: ReadonlySet<LLMErrorCode> = new Set([
+  "TIMEOUT",
+  "NETWORK_ERROR",
+  "SERVER_ERROR",
+]);
+
 /**
  * Sends Chinese text + context to the configured LLM and returns
- * structured word data with definitions and a sentence translation.
+ * structured word data with contextual definitions and a sentence
+ * translation.
  *
- * Handles timeout (LLM_TIMEOUT_MS), one retry on 5xx server errors,
- * and graceful null return on any failure so the caller can fall
- * back to Phase 1 local pinyin.
+ * Resilience features layered on top of a single fetch:
+ *  - Per-attempt timeout (LLM_TIMEOUT_MS) with a fresh AbortController
+ *    each iteration so aborts on attempt N never bleed into N+1.
+ *  - Up to RETRY_DELAYS_MS.length retries (3 attempts total) with
+ *    jittered backoff, but only for transient codes (TIMEOUT /
+ *    NETWORK_ERROR / SERVER_ERROR). AUTH_FAILED, RATE_LIMITED, and
+ *    INVALID_RESPONSE are surfaced immediately on first occurrence.
+ *  - Tolerant JSON parsing that salvages truncated bodies into a
+ *    `partial: true` response instead of a hard failure.
+ *  - Local pinyin backfill so the wire/cache shape is unchanged
+ *    despite the slimmed prompt.
  *
  * (SPEC.md Section 6 "Fallback Strategy")
  */
@@ -186,71 +379,139 @@ export async function queryLLM(
   text: string,
   context: string,
   config: LLMConfig,
+  pinyinStyle: PinyinStyle,
 ): Promise<LLMResult> {
-  const preset = PROVIDER_PRESETS[config.provider];
-  const apiStyle = preset.apiStyle;
+  const apiStyle = PROVIDER_PRESETS[config.provider].apiStyle;
+  const totalAttempts = RETRY_DELAYS_MS.length + 1;
+  let last: LLMResult = {
+    ok: false,
+    error: { code: "UNKNOWN", message: "LLM request failed." },
+  };
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
-
-  try {
-    return await attemptFetch(text, context, config, apiStyle, controller.signal);
-  } catch (err) {
-    if (err && typeof err === "object" && (err as { name?: string }).name === "AbortError") {
-      return { ok: false, error: { code: "TIMEOUT", message: "Translation timed out. Try again." } };
+  for (let attempt = 1; attempt <= totalAttempts; attempt++) {
+    if (attempt > 1) {
+      const baseDelay = RETRY_DELAYS_MS[attempt - 2];
+      const jittered = baseDelay * (1 + Math.random() * 0.25);
+      await new Promise((r) => setTimeout(r, jittered));
     }
-    console.error("[LLM-client] queryLLM caught error:", err);
-    return { ok: false, error: { code: "NETWORK_ERROR", message: "Could not reach the LLM provider." } };
-  } finally {
-    clearTimeout(timeout);
+
+    const t0 = Date.now();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+
+    let result: LLMResult;
+    let status: string;
+
+    try {
+      result = await singleAttempt(
+        text,
+        context,
+        config,
+        apiStyle,
+        pinyinStyle,
+        controller.signal,
+      );
+      status = result.ok ? "ok" : result.error.code;
+    } catch (err) {
+      const isAbort =
+        err && typeof err === "object" &&
+        (err as { name?: string }).name === "AbortError";
+      result = isAbort
+        ? { ok: false, error: { code: "TIMEOUT", message: "Translation timed out. Try again." } }
+        : { ok: false, error: { code: "NETWORK_ERROR", message: "Could not reach the LLM provider." } };
+      status = result.error ? result.error.code : "UNKNOWN";
+      if (!isAbort) {
+        console.error("[LLM-client] Caught error on attempt %d:", attempt, err);
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+
+    logTelemetry({
+      provider: config.provider,
+      model: config.model,
+      attempt,
+      status,
+      latencyMs: Date.now() - t0,
+      partial: result.ok ? Boolean(result.data.partial) : false,
+      textLen: text.length,
+      contextLen: context.length,
+    });
+
+    last = result;
+    if (result.ok) return result;
+    if (!RETRYABLE_CODES.has(result.error.code)) return result;
   }
+
+  return last;
 }
 
 /**
- * Executes a single fetch attempt and retries once on 5xx server errors.
- * The 1-second delay before retry gives transient server issues time
- * to resolve without hammering the endpoint.
+ * Executes one HTTP fetch + parse cycle. Returns a typed LLMResult
+ * for any HTTP-level outcome; AbortErrors propagate to the caller's
+ * try/catch so the retry loop can classify them as TIMEOUT.
  */
-async function attemptFetch(
+async function singleAttempt(
   text: string,
   context: string,
   config: LLMConfig,
   apiStyle: APIStyle,
+  pinyinStyle: PinyinStyle,
   signal: AbortSignal,
 ): Promise<LLMResult> {
   const { url, init } = buildRequest(text, context, config, apiStyle, signal);
 
-  console.log("[LLM-client] Fetching: %s", url);
+  console.log("[LLM-client] Fetching: %s", redactUrl(url));
 
-  let response = await fetch(url, init);
-
-  if (!response.ok && response.status >= 500) {
-    console.warn("[LLM-client] Got %d, retrying in 1s…", response.status);
-    await new Promise((r) => setTimeout(r, 1000));
-    response = await fetch(url, init);
-  }
+  const response = await fetch(url, init);
 
   if (!response.ok) {
     const body = await response.text().catch(() => "(unreadable)");
-    console.error("[LLM-client] HTTP %d %s — body: %s", response.status, response.statusText, body.slice(0, 500));
+    console.error(
+      "[LLM-client] HTTP %d %s — body: %s",
+      response.status,
+      response.statusText,
+      body.slice(0, 500),
+    );
     return { ok: false, error: classifyHttpError(response.status) };
   }
 
-  let data;
+  let data: unknown;
   try {
     data = await response.json();
   } catch {
-    return { ok: false, error: { code: "INVALID_RESPONSE", message: "Received an invalid response from the LLM." } };
+    return {
+      ok: false,
+      error: { code: "INVALID_RESPONSE", message: "Received an invalid response from the LLM." },
+    };
   }
 
-  const parsed = parseResponse(data, apiStyle);
+  const raw = extractRawText(data, apiStyle);
+  if (!raw) {
+    console.error("[LLM-client] No text payload in response envelope. Raw:", data);
+    return {
+      ok: false,
+      error: { code: "INVALID_RESPONSE", message: "Received an invalid response from the LLM." },
+    };
+  }
+
+  const { value: parsed, partial } = tryParseJson(raw);
 
   if (!validateLLMResponse(parsed)) {
     console.error("[LLM-client] Response failed validation. Raw parsed:", parsed);
-    return { ok: false, error: { code: "INVALID_RESPONSE", message: "Received an invalid response from the LLM." } };
+    return {
+      ok: false,
+      error: { code: "INVALID_RESPONSE", message: "Received an invalid response from the LLM." },
+    };
   }
 
-  return { ok: true, data: parsed };
+  const filled: LLMResponse = {
+    words: normalizeWords(parsed.words, pinyinStyle),
+    translation: parsed.translation,
+    ...(partial ? { partial: true } : {}),
+  };
+
+  return { ok: true, data: filled };
 }
 
 function classifyHttpError(status: number): LLMError {

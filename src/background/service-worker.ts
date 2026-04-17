@@ -16,14 +16,22 @@
  */
 
 import { convertToPinyin } from "./pinyin-service";
-import { queryLLM } from "./llm-client";
-import { hashText, getFromCache, saveToCache, evictExpiredEntries } from "./cache";
+import { queryLLM, type LLMResult } from "./llm-client";
+import {
+  hashText,
+  getFromCache,
+  getCachedError,
+  saveToCache,
+  saveErrorToCache,
+  evictExpiredEntries,
+} from "./cache";
 import { recordWords, removeWord } from "./vocab-store";
 import {
   DEFAULT_SETTINGS,
   PROVIDER_PRESETS,
   LLM_MAX_TOKENS,
   LLM_TEMPERATURE,
+  KEEPALIVE_PORT_NAME,
 } from "../shared/constants";
 import type {
   ExtensionSettings,
@@ -31,6 +39,17 @@ import type {
   PinyinRequest,
   PinyinResponseLocal,
 } from "../shared/types";
+
+// ─── In-flight Request Coalescing ──────────────────────────────────
+
+/**
+ * Map<cacheKey, in-flight queryLLM Promise>. Lets duplicate concurrent
+ * requests for the same text+context (e.g. rapid mouse-ups, keyboard
+ * shortcut firing while a context-menu request is mid-flight) share a
+ * single network call instead of racing each other and competing for
+ * the same timeout budget.
+ */
+const inflightLLM = new Map<string, Promise<LLMResult>>();
 
 // ─── Settings Helper ───────────────────────────────────────────────
 
@@ -87,12 +106,26 @@ async function handlePinyinRequest(
 }
 
 /**
- * Async LLM path (Phase 2). Checks the chrome.storage.local cache
- * before calling queryLLM to avoid redundant API calls for text the
- * user has already looked up.  On cache miss, calls the LLM and
- * stores the result for next time.
+ * Async LLM path (Phase 2). Layered cache + dedup before the network
+ * call, plus partial-response support and a brief negative cache for
+ * rate-limit replies.
  *
- * Skips silently if LLM is disabled or the provider isn't configured.
+ * Order of operations:
+ *  1. Bail out if LLM is disabled or the API key is missing.
+ *  2. Hash text+context into a cache key.
+ *  3. Positive-cache hit -> reply with cached response.
+ *  4. Negative-cache hit (today: only RATE_LIMITED) -> reply with the
+ *     cached error so we don't hammer the provider mid-throttle.
+ *  5. In-flight coalescing -> share a single Promise for any duplicate
+ *     concurrent request with the same cache key.
+ *  6. Otherwise call queryLLM (which already does retries + salvage).
+ *  7. On success: send the words/translation. Cache only when the
+ *     response is *not* `partial`, so a salvaged-from-truncation reply
+ *     never freezes a degraded answer in place for a week.
+ *  8. On error: forward the message and (best effort) write a negative
+ *     cache entry; saveErrorToCache silently no-ops for codes outside
+ *     the NEGATIVE_CACHE_TTL_MS allow-list.
+ *
  * (SPEC.md Section 6 "Fallback Strategy", "Caching")
  */
 async function handleLLMPath(
@@ -116,16 +149,16 @@ async function handleLLMPath(
     return;
   }
 
-  console.log("[LLM] Starting request: provider=%s, model=%s, baseUrl=%s, text='%s'",
-    settings.provider, settings.model, settings.baseUrl, request.text.slice(0, 50));
+  console.log("[LLM] Starting request: provider=%s, model=%s, text='%s'",
+    settings.provider, settings.model, request.text.slice(0, 50));
 
   // Cache lookup keyed on text+context so identical selections in
   // different paragraphs get separate, contextually correct entries.
   const cacheKey = await hashText(request.text + request.context);
-  const cached = await getFromCache(cacheKey);
 
+  const cached = await getFromCache(cacheKey);
   if (cached) {
-    console.log("[LLM] Cache hit for key=%s", cacheKey.slice(0, 12));
+    console.log("[LLM] Positive cache hit for key=%s", cacheKey.slice(0, 12));
     chrome.tabs.sendMessage(tabId, {
       type: "PINYIN_RESPONSE_LLM",
       words: cached.words,
@@ -134,7 +167,16 @@ async function handleLLMPath(
     return;
   }
 
-  console.log("[LLM] Cache miss, calling queryLLM…");
+  const cachedErr = await getCachedError(cacheKey);
+  if (cachedErr) {
+    console.log("[LLM] Negative cache hit [%s] for key=%s", cachedErr.code, cacheKey.slice(0, 12));
+    chrome.tabs.sendMessage(tabId, {
+      type: "PINYIN_ERROR",
+      error: cachedErr.message,
+      phase: "llm",
+    });
+    return;
+  }
 
   const config: LLMConfig = {
     provider: settings.provider,
@@ -145,12 +187,21 @@ async function handleLLMPath(
     temperature: LLM_TEMPERATURE,
   };
 
-  const result = await queryLLM(request.text, request.context, config);
+  const result = await dedupedQueryLLM(
+    cacheKey,
+    request.text,
+    request.context,
+    config,
+    settings.pinyinStyle,
+  );
 
   if (result.ok) {
-    console.log("[LLM] Success: %d words, translation='%s'",
+    console.log("[LLM] Success%s: %d words, translation='%s'",
+      result.data.partial ? " (partial)" : "",
       result.data.words.length, result.data.translation.slice(0, 80));
-    await saveToCache(cacheKey, result.data);
+    if (!result.data.partial) {
+      await saveToCache(cacheKey, result.data);
+    }
     chrome.tabs.sendMessage(tabId, {
       type: "PINYIN_RESPONSE_LLM",
       words: result.data.words,
@@ -158,12 +209,39 @@ async function handleLLMPath(
     });
   } else {
     console.error("[LLM] queryLLM failed: [%s] %s", result.error.code, result.error.message);
+    await saveErrorToCache(cacheKey, result.error);
     chrome.tabs.sendMessage(tabId, {
       type: "PINYIN_ERROR",
       error: result.error.message,
       phase: "llm",
     });
   }
+}
+
+/**
+ * Wraps queryLLM with an in-flight Map keyed by cache key. If a request
+ * for the same key is already running, returns its Promise instead of
+ * starting a second one. The map entry is cleared on settlement (via
+ * .finally) so the next *new* request for that key still hits the wire.
+ */
+function dedupedQueryLLM(
+  cacheKey: string,
+  text: string,
+  context: string,
+  config: LLMConfig,
+  pinyinStyle: ExtensionSettings["pinyinStyle"],
+): Promise<LLMResult> {
+  const existing = inflightLLM.get(cacheKey);
+  if (existing) {
+    console.log("[LLM] Coalescing onto in-flight request for key=%s", cacheKey.slice(0, 12));
+    return existing;
+  }
+
+  const p = queryLLM(text, context, config, pinyinStyle).finally(() => {
+    inflightLLM.delete(cacheKey);
+  });
+  inflightLLM.set(cacheKey, p);
+  return p;
 }
 
 // ─── OCR Message Handling ──────────────────────────────────────────
@@ -223,6 +301,25 @@ chrome.runtime.onMessage.addListener(
     }
   },
 );
+
+// ─── MV3 Keep-Alive Port ──────────────────────────────────────────
+
+/**
+ * Accepts (and silently holds) chrome.runtime.Port connections opened
+ * by content scripts for the duration of long-running LLM requests.
+ * Chrome keeps the MV3 service worker alive as long as at least one
+ * port remains connected, so a 30+ second LLM generation no longer
+ * risks suspension mid-fetch (which used to manifest as silent
+ * dropped responses). chrome.runtime tracks the port lifetime
+ * internally; we just need a listener to be registered, otherwise
+ * incoming connections close immediately.
+ */
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== KEEPALIVE_PORT_NAME) return;
+  // No-op: holding the listener registration is sufficient. The port
+  // disconnects when the content script calls port.disconnect() or
+  // when the originating tab navigates / closes.
+});
 
 // ─── Context Menu ──────────────────────────────────────────────────
 

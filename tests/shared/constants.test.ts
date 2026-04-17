@@ -38,8 +38,8 @@ describe("constants", () => {
     expect(MAX_CACHE_ENTRIES).toBeGreaterThan(0);
   });
 
-  it("LLM_TIMEOUT_MS is 10 seconds", () => {
-    expect(LLM_TIMEOUT_MS).toBe(10_000);
+  it("LLM_TIMEOUT_MS is the per-attempt fetch budget (45s)", () => {
+    expect(LLM_TIMEOUT_MS).toBe(45_000);
   });
 
   it("MAX_SELECTION_LENGTH is 500", () => {
@@ -110,8 +110,17 @@ describe("SYSTEM_PROMPT", () => {
     expect(SYSTEM_PROMPT.toLowerCase()).toContain("json");
   });
 
-  it("mentions pinyin", () => {
-    expect(SYSTEM_PROMPT.toLowerCase()).toContain("pinyin");
+  it("does NOT ask the LLM for pinyin (local pinyin-pro backfills it)", () => {
+    // The slimmed prompt drops the pinyin field to roughly halve output
+    // tokens. queryLLM() backfills pinyin via convertToPinyin() before
+    // returning to the caller. See backfill in src/background/llm-client.ts.
+    expect(SYSTEM_PROMPT.toLowerCase()).not.toContain("pinyin");
+  });
+
+  it("asks for chars + definition + translation", () => {
+    expect(SYSTEM_PROMPT).toContain("chars");
+    expect(SYSTEM_PROMPT).toContain("definition");
+    expect(SYSTEM_PROMPT).toContain("translation");
   });
 });
 
