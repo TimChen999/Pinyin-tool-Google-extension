@@ -49,7 +49,28 @@ function buildLibraryDOM(): void {
     </header>
 
     <main class="library-content">
-      <section id="library-pane-reader" class="library-pane"></section>
+      <section id="library-pane-reader" class="library-pane">
+        <header class="reader-toolbar">
+          <div class="toolbar-group toolbar-group-left">
+            <button id="toc-toggle" class="toolbar-btn"></button>
+            <div class="toolbar-popover-anchor">
+              <button id="bookmark-toggle" class="toolbar-btn" aria-haspopup="menu" aria-expanded="false"></button>
+              <div id="bookmark-menu" class="popover hidden" role="menu">
+                <button id="bookmark-add" class="popover-item" role="menuitem"></button>
+                <button id="bookmark-show" class="popover-item" role="menuitem"></button>
+              </div>
+            </div>
+          </div>
+          <div class="toolbar-group toolbar-group-right">
+            <button id="open-file-btn" class="toolbar-btn"></button>
+            <button id="settings-toggle" class="toolbar-btn"></button>
+          </div>
+        </header>
+        <aside id="bookmark-sidebar" class="bookmark-sidebar collapsed">
+          <div id="bookmark-list" class="bookmark-list"></div>
+        </aside>
+        <div id="reader-toast" class="reader-toast hidden" role="status"></div>
+      </section>
       <section id="library-pane-vocab" class="library-pane hidden">
         <div id="tab-vocab" class="hub-tab-content"></div>
       </section>

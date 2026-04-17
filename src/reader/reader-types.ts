@@ -121,3 +121,22 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
 export const MAX_RECENT_FILES = 20;
 export const AUTOSAVE_INTERVAL_MS = 30_000;
 export const DEBOUNCE_SAVE_MS = 2_000;
+
+/**
+ * User-created named bookmark. Wraps a BookmarkAnchor (the same shape
+ * the auto-bookmark uses) with stable identity, file scoping, and a
+ * human-readable label so the UI list can show "Ch 5 -- '世界...'"
+ * style entries even when the underlying anchor's word is empty.
+ *
+ * Stored separately from ReadingState (which is overwritten on every
+ * autosave) so the user's curated list is never clobbered.
+ */
+export interface ManualBookmark {
+  id: string;
+  fileHash: string;
+  anchor: BookmarkAnchor;
+  label: string;
+  createdAt: number;
+}
+
+export const MAX_BOOKMARKS_PER_FILE = 100;

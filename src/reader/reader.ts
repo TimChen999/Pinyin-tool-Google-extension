@@ -39,6 +39,11 @@ import type { ExtensionSettings, LLMConfig } from "../shared/types";
 import { saveFileHandle, getFileHandle } from "./file-handle-store";
 import { getRendererForFile, getSupportedExtensions } from "./renderers/renderer-registry";
 import { EpubRenderer } from "./renderers/epub-renderer";
+import {
+  listBookmarks,
+  addBookmark as storeAddBookmark,
+  removeBookmark as storeRemoveBookmark,
+} from "./bookmarks-store";
 import type {
   FormatRenderer,
   BookMetadata,
@@ -46,6 +51,7 @@ import type {
   ReadingState,
   ReaderSettings,
   BookmarkAnchor,
+  ManualBookmark,
 } from "./reader-types";
 import {
   DEFAULT_READER_SETTINGS,
@@ -87,6 +93,14 @@ let lastCapturedAnchor: BookmarkAnchor | null = null;
  */
 let savedTabSwitchLocation: string | null = null;
 let savedTabSwitchScrollTop: number | null = null;
+
+/**
+ * Pending dismiss timer for the toast. Only one toast is visible at a
+ * time -- a second showToast() call cancels the pending dismiss and
+ * resets it for the new message.
+ */
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
+const TOAST_DURATION_MS = 2400;
 
 /**
  * Re-apply the most recent word anchor against whatever the renderer's
@@ -223,6 +237,13 @@ function getElements() {
     themeSetting: document.getElementById("setting-theme") as HTMLSelectElement,
     readingModeSetting: document.getElementById("setting-reading-mode") as HTMLSelectElement,
     pinyinSetting: document.getElementById("setting-pinyin") as HTMLInputElement,
+    bookmarkToggle: document.getElementById("bookmark-toggle") as HTMLButtonElement,
+    bookmarkMenu: document.getElementById("bookmark-menu") as HTMLElement,
+    bookmarkAdd: document.getElementById("bookmark-add") as HTMLButtonElement,
+    bookmarkShow: document.getElementById("bookmark-show") as HTMLButtonElement,
+    bookmarkSidebar: document.getElementById("bookmark-sidebar") as HTMLElement,
+    bookmarkList: document.getElementById("bookmark-list") as HTMLElement,
+    readerToast: document.getElementById("reader-toast") as HTMLElement,
   };
 }
 
@@ -660,6 +681,10 @@ async function openFile(
   els.bookAuthor.textContent = metadata.author ? `\u2014 ${metadata.author}` : "";
   document.title = `${metadata.title} \u2014 Pinyin Reader`;
 
+  // Pre-populate the bookmark sidebar so it's ready the moment the
+  // user clicks "Show all bookmarks" (no flash of empty state).
+  await renderBookmarkList(els);
+
   els.tocList.innerHTML = "";
   renderToc(els.tocList, metadata.toc, async (href) => {
     await renderer.goTo(href);
@@ -829,6 +854,168 @@ function escapeHtml(str: string): string {
     .replace(/>/g, "&gt;");
 }
 
+// ─── Toast ─────────────────────────────────────────────────────────
+
+/**
+ * Show an ephemeral status message at the bottom of the reader pane.
+ * Used by the bookmark feature for "Bookmark added", "Click a Chinese
+ * word first", and jump-failure messages. Single-toast policy: a
+ * second call cancels the previous timer and replaces the text.
+ */
+function showToast(els: ReturnType<typeof getElements>, message: string): void {
+  if (!els.readerToast) return;
+  els.readerToast.textContent = message;
+  els.readerToast.classList.remove("hidden");
+  if (toastTimer !== null) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    els.readerToast.classList.add("hidden");
+    toastTimer = null;
+  }, TOAST_DURATION_MS);
+}
+
+// ─── Bookmark sidebar / popover ────────────────────────────────────
+
+/**
+ * Hide the bookmark popover and reflect the closed state in
+ * aria-expanded so screen readers see the right disclosure value.
+ */
+function closeBookmarkMenu(els: ReturnType<typeof getElements>): void {
+  els.bookmarkMenu.classList.add("hidden");
+  els.bookmarkToggle.setAttribute("aria-expanded", "false");
+}
+
+function openBookmarkMenu(els: ReturnType<typeof getElements>): void {
+  els.bookmarkMenu.classList.remove("hidden");
+  els.bookmarkToggle.setAttribute("aria-expanded", "true");
+}
+
+/**
+ * Show one sidebar at a time. The TOC and Bookmark sidebars share the
+ * same screen position (left edge) so leaving both open would have
+ * them stack invisibly; mutual exclusion keeps the user oriented.
+ */
+function showOnlySidebar(
+  els: ReturnType<typeof getElements>,
+  which: "toc" | "bookmark" | "none",
+): void {
+  els.tocSidebar.classList.toggle("collapsed", which !== "toc");
+  els.bookmarkSidebar.classList.toggle("collapsed", which !== "bookmark");
+}
+
+function isBookmarkSidebarOpen(els: ReturnType<typeof getElements>): boolean {
+  return !els.bookmarkSidebar.classList.contains("collapsed");
+}
+
+function isTocSidebarOpen(els: ReturnType<typeof getElements>): boolean {
+  return !els.tocSidebar.classList.contains("collapsed");
+}
+
+/**
+ * Re-render the bookmark sidebar's list from storage. Empty-state
+ * message lives in the same container so the layout stays stable.
+ */
+async function renderBookmarkList(els: ReturnType<typeof getElements>): Promise<void> {
+  els.bookmarkList.innerHTML = "";
+  if (!currentFileHash) {
+    appendBookmarkEmptyState(els);
+    return;
+  }
+  const bookmarks = await listBookmarks(currentFileHash);
+  if (bookmarks.length === 0) {
+    appendBookmarkEmptyState(els);
+    return;
+  }
+  for (const bm of bookmarks) {
+    els.bookmarkList.appendChild(buildBookmarkRow(els, bm));
+  }
+}
+
+function appendBookmarkEmptyState(els: ReturnType<typeof getElements>): void {
+  const empty = document.createElement("div");
+  empty.className = "bookmark-list-empty";
+  empty.textContent =
+    "No bookmarks yet. Click the bookmark icon while reading to save your spot.";
+  els.bookmarkList.appendChild(empty);
+}
+
+function buildBookmarkRow(
+  els: ReturnType<typeof getElements>,
+  bm: ManualBookmark,
+): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "bookmark-list-item";
+  row.dataset.bookmarkId = bm.id;
+
+  const snippet = document.createElement("button");
+  snippet.type = "button";
+  snippet.className = "bookmark-snippet";
+  snippet.textContent = bm.label || "(empty bookmark)";
+  snippet.title = "Jump to bookmark";
+  snippet.addEventListener("click", async () => {
+    await jumpToBookmark(els, bm);
+  });
+
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "bookmark-delete";
+  del.title = "Delete bookmark";
+  del.setAttribute("aria-label", "Delete bookmark");
+  del.innerHTML =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+  del.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    if (!currentFileHash) return;
+    await storeRemoveBookmark(currentFileHash, bm.id);
+    await renderBookmarkList(els);
+  });
+
+  row.append(snippet, del);
+  return row;
+}
+
+async function jumpToBookmark(
+  els: ReturnType<typeof getElements>,
+  bm: ManualBookmark,
+): Promise<void> {
+  if (!currentRenderer) return;
+  let ok = false;
+  try {
+    ok = await currentRenderer.goToAnchor(bm.anchor);
+  } catch {
+    ok = false;
+  }
+  if (!ok) {
+    showToast(
+      els,
+      "Could not jump to bookmark - file content may have changed.",
+    );
+    return;
+  }
+  // Adopt the jumped-to anchor as the latest captured one so a tab
+  // switch right after a jump restores to where the user just landed
+  // rather than where they were before clicking the bookmark.
+  lastCapturedAnchor = bm.anchor;
+  showOnlySidebar(els, "none");
+}
+
+async function handleAddBookmark(els: ReturnType<typeof getElements>): Promise<void> {
+  if (!currentFileHash) {
+    showToast(els, "Open a file first to bookmark a position.");
+    return;
+  }
+  if (!lastCapturedAnchor) {
+    showToast(
+      els,
+      "Click a Chinese word first - bookmarks anchor on the last word you looked up.",
+    );
+    return;
+  }
+  await storeAddBookmark(currentFileHash, lastCapturedAnchor);
+  await renderBookmarkList(els);
+  closeBookmarkMenu(els);
+  showToast(els, "Bookmark added");
+}
+
 // ─── Return to landing ─────────────────────────────────────────────
 
 /**
@@ -851,11 +1038,16 @@ async function goToLanding(els: ReturnType<typeof getElements>): Promise<void> {
   document.title = "Pinyin Tool \u2014 Library";
 
   els.tocList.innerHTML = "";
+  els.bookmarkList.innerHTML = "";
   els.readerContent.innerHTML = "";
   els.readerContent.classList.add("hidden");
   els.readerFooter.classList.add("hidden");
   els.openFileBtn.classList.add("hidden");
   els.landing.classList.remove("hidden");
+  // Both sidebars get collapsed when leaving a book so the landing
+  // screen isn't pushed to the side by a stale, empty sidebar.
+  showOnlySidebar(els, "none");
+  closeBookmarkMenu(els);
 
   await renderRecentFiles(els);
 }
@@ -974,8 +1166,40 @@ export async function initReader(): Promise<void> {
 
   // ── TOC sidebar toggle ────────────────────────────────────────
 
+  // TOC and Bookmark sidebars are mutually exclusive (same screen
+  // position) -- toggling one closes the other so the user always
+  // sees a single panel rather than a stack.
   els.tocToggle.addEventListener("click", () => {
-    els.tocSidebar.classList.toggle("collapsed");
+    if (isTocSidebarOpen(els)) {
+      showOnlySidebar(els, "none");
+    } else {
+      showOnlySidebar(els, "toc");
+    }
+  });
+
+  // ── Bookmark popover + sidebar ────────────────────────────────
+
+  els.bookmarkToggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (els.bookmarkMenu.classList.contains("hidden")) {
+      openBookmarkMenu(els);
+    } else {
+      closeBookmarkMenu(els);
+    }
+  });
+
+  els.bookmarkAdd.addEventListener("click", () => {
+    void handleAddBookmark(els);
+  });
+
+  els.bookmarkShow.addEventListener("click", async () => {
+    closeBookmarkMenu(els);
+    if (isBookmarkSidebarOpen(els)) {
+      showOnlySidebar(els, "none");
+    } else {
+      await renderBookmarkList(els);
+      showOnlySidebar(els, "bookmark");
+    }
   });
 
   // ── Settings panel ────────────────────────────────────────────
@@ -1036,15 +1260,30 @@ export async function initReader(): Promise<void> {
       else els.nextBtn.click();
     } else if (e.key === "Escape") {
       dismissOverlay();
+      // Escape also closes the bookmark menu so the user has a single
+      // dismiss key for both the overlay and any toolbar popover.
+      if (!els.bookmarkMenu.classList.contains("hidden")) {
+        closeBookmarkMenu(els);
+      }
     }
   });
 
-  // ── Dismiss overlay on outside click ──────────────────────────
+  // ── Dismiss overlay + bookmark popover on outside click ───────
 
   document.addEventListener("mousedown", (e) => {
     const root = document.getElementById("hg-extension-root");
     if (root && !root.contains(e.target as Node)) {
       dismissOverlay();
+    }
+    // Close the bookmark popover when clicking outside it (and outside
+    // its toggle button -- the toggle has its own click handler that
+    // would re-open the menu if we closed it here).
+    if (
+      !els.bookmarkMenu.classList.contains("hidden") &&
+      !els.bookmarkMenu.contains(e.target as Node) &&
+      !els.bookmarkToggle.contains(e.target as Node)
+    ) {
+      closeBookmarkMenu(els);
     }
   });
 

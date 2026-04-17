@@ -46,13 +46,23 @@ body { background: var(--bg); color: var(--text); }
   flex-shrink: 0; z-index: 10;
 }
 
+/* Equal-size square buttons so glyph buttons (≡) and SVG icon buttons
+   align visually. Flex centering replaces padding-based positioning so
+   text glyphs and 18x18 SVGs both sit dead-center. */
 .toolbar-btn {
+  width: 36px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0; line-height: 1;
   background: none; border: 1px solid var(--border); border-radius: 6px;
-  padding: 6px 10px; cursor: pointer; font-size: 18px;
+  cursor: pointer; font-size: 18px;
   color: var(--text); transition: background 0.15s;
 }
 .toolbar-btn:hover { background: var(--surface); }
 .toolbar-btn svg { display: block; }
+
+.toolbar-group { display: flex; gap: 6px; }
+/* Anchors absolute popovers (e.g. bookmark menu) under their button. */
+.toolbar-popover-anchor { position: relative; }
 
 .toolbar-title {
   flex: 1; text-align: center; overflow: hidden;
@@ -62,6 +72,110 @@ body { background: var(--bg); color: var(--text); }
 .toolbar-title #book-author {
   margin-left: 8px; font-size: 0.85em; color: var(--pinyin);
 }
+
+/* ── Popover (bookmark menu) ────────────────────────────────── */
+
+.popover {
+  position: absolute; top: calc(100% + 4px); left: 0;
+  min-width: 220px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+  padding: 6px; z-index: 50;
+  display: flex; flex-direction: column; gap: 2px;
+}
+
+.popover-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px;
+  background: none; border: none; border-radius: 6px;
+  cursor: pointer; text-align: left;
+  color: var(--text); font-size: 14px; font-family: inherit;
+  transition: background 0.15s;
+}
+.popover-item:hover { background: var(--surface); }
+.popover-item svg { flex-shrink: 0; opacity: 0.7; }
+
+/* ── Bookmark sidebar (mirrors .toc-sidebar) ────────────────── */
+
+.bookmark-sidebar {
+  width: 280px;
+  position: absolute; left: 0; top: 0; bottom: 0; z-index: 20;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  overflow-y: auto; padding: 12px 0;
+  transition: transform 0.25s ease;
+  transform: translateX(0);
+  display: flex; flex-direction: column;
+}
+.bookmark-sidebar.collapsed { transform: translateX(-100%); }
+
+.sidebar-heading {
+  margin: 0 16px 8px; padding: 0 0 8px;
+  font-size: 0.85em; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--pinyin);
+  border-bottom: 1px solid var(--border);
+}
+
+.bookmark-list {
+  flex: 1; overflow-y: auto;
+}
+
+.bookmark-list-empty {
+  padding: 16px; color: var(--pinyin);
+  font-size: 0.85em; line-height: 1.5;
+}
+
+.bookmark-list-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px 8px 16px;
+  border-left: 3px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+.bookmark-list-item:hover {
+  background: var(--surface);
+  border-left-color: var(--accent);
+}
+
+.bookmark-snippet {
+  flex: 1; min-width: 0;
+  background: none; border: none; padding: 0;
+  cursor: pointer; text-align: left;
+  color: var(--text); font-family: inherit; font-size: 0.85em;
+  line-height: 1.4; overflow: hidden;
+  /* Two-line clamp keeps the snippet readable without runaway height. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.bookmark-delete {
+  flex-shrink: 0;
+  width: 24px; height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; border-radius: 4px;
+  cursor: pointer; color: var(--pinyin);
+  transition: background 0.15s, color 0.15s;
+}
+.bookmark-delete:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* ── Reader toast (ephemeral status) ────────────────────────── */
+
+.reader-toast {
+  position: fixed; bottom: 32px; left: 50%;
+  transform: translateX(-50%);
+  max-width: min(80vw, 400px);
+  background: var(--text); color: var(--bg);
+  padding: 10px 18px; border-radius: 6px;
+  font-size: 14px; line-height: 1.4;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  z-index: 200;
+  opacity: 1; transition: opacity 0.2s ease;
+}
+.reader-toast.hidden { opacity: 0; pointer-events: none; }
 
 /* ── Main body layout ───────────────────────────────────────── */
 
@@ -411,28 +525,33 @@ body { background: var(--bg); color: var(--text); }
 /* ── Custom scrollbars ──────────────────────────────────────── */
 
 .toc-sidebar,
+.bookmark-sidebar,
 .reader-main {
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }
 
 .toc-sidebar::-webkit-scrollbar,
+.bookmark-sidebar::-webkit-scrollbar,
 .reader-main::-webkit-scrollbar {
   width: 6px;
 }
 
 .toc-sidebar::-webkit-scrollbar-track,
+.bookmark-sidebar::-webkit-scrollbar-track,
 .reader-main::-webkit-scrollbar-track {
   background: transparent;
 }
 
 .toc-sidebar::-webkit-scrollbar-thumb,
+.bookmark-sidebar::-webkit-scrollbar-thumb,
 .reader-main::-webkit-scrollbar-thumb {
   background: var(--border);
   border-radius: 3px;
 }
 
 .toc-sidebar::-webkit-scrollbar-thumb:hover,
+.bookmark-sidebar::-webkit-scrollbar-thumb:hover,
 .reader-main::-webkit-scrollbar-thumb:hover {
   background: var(--accent);
 }
@@ -440,11 +559,19 @@ body { background: var(--bg); color: var(--text); }
 /* ── Responsive ─────────────────────────────────────────────── */
 
 @media (max-width: 900px) {
-  .toc-sidebar { position: fixed; }
+  .toc-sidebar,
+  .bookmark-sidebar { position: fixed; }
 }
 
 @media (max-width: 600px) {
-  .toc-sidebar { width: 100%; }
+  .toc-sidebar,
+  .bookmark-sidebar { width: 100%; }
   .reader-content { padding: 16px 12px; }
   .reader-toolbar { padding: 6px 8px; }
+}
+
+/* On narrow viewports the title takes too much room with four icon
+   buttons; hiding it during active reading keeps the toolbar usable. */
+@media (max-width: 480px) {
+  .toolbar-title { display: none; }
 }
