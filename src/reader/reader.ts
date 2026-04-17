@@ -45,6 +45,7 @@ import type {
   TocEntry,
   ReadingState,
   ReaderSettings,
+  BookmarkAnchor,
 } from "./reader-types";
 import {
   DEFAULT_READER_SETTINGS,
@@ -62,6 +63,17 @@ let currentRequestId = 0;
 let autosaveTimer: ReturnType<typeof setInterval> | null = null;
 let debounceSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let readerSettings: ReaderSettings = { ...DEFAULT_READER_SETTINGS };
+
+/**
+ * Word-precise anchor for the most recent successful selection. Updated
+ * inside processSelection (single choke point for every renderer's
+ * lookup) and persisted alongside the coarse `location` so reopening
+ * the same file lands on the exact word the user last looked at.
+ *
+ * Reset to null at the top of openFile() so anchors don't leak between
+ * different books in the same session.
+ */
+let lastCapturedAnchor: BookmarkAnchor | null = null;
 
 /**
  * Map<cacheKey, in-flight queryLLM Promise>. Mirrors the dedup map in
@@ -301,6 +313,14 @@ async function processSelection(
   const settings = await getExtensionSettings();
   const words = convertToPinyin(truncated, settings.pinyinStyle);
   if (requestId !== currentRequestId) return;
+
+  // Capture word-precise anchor before showing the overlay so the
+  // anchor reflects the same selection the user is looking up. Done
+  // here (after the requestId check) so a stale selection from a
+  // superseded request can't overwrite a newer one.
+  const anchor = currentRenderer?.captureAnchor();
+  if (anchor) lastCapturedAnchor = anchor;
+
   showOverlay(words, rect, settings.theme, settings.ttsEnabled);
 
   if (!settings.llmEnabled || !readerSettings.pinyinEnabled) return;
@@ -422,7 +442,7 @@ function attachSelectionHandler(renderer: FormatRenderer): void {
   const rendition = renderer.getRendition();
   if (!rendition) return;
 
-  rendition.on("selected", (_cfiRange: string, contents: any) => {
+  rendition.on("selected", (cfiRange: string, contents: any) => {
     if (!readerSettings.pinyinEnabled) return;
 
     const selection = contents.window.getSelection();
@@ -430,6 +450,14 @@ function attachSelectionHandler(renderer: FormatRenderer): void {
 
     const text = selection.toString().trim();
     if (!text || !containsChinese(text)) return;
+
+    // Stash CFI + context BEFORE processSelection so its captureAnchor
+    // call sees the freshly recorded anchor. epub.js gives us the
+    // range-level CFI directly here -- the only place it's available
+    // without re-parsing the iframe DOM.
+    if (renderer instanceof EpubRenderer) {
+      renderer.recordSelectedAnchor(cfiRange, text, contents);
+    }
 
     const range = selection.getRangeAt(0);
     const rect = range.getBoundingClientRect();
@@ -489,6 +517,9 @@ async function openFile(
     currentRenderer.destroy();
     currentRenderer = null;
   }
+  // Reset before loading the new file so a stale anchor from the
+  // previous book can't be persisted against this one's hash.
+  lastCapturedAnchor = null;
 
   const renderer = getRendererForFile(file);
   if (!renderer) {
@@ -556,6 +587,17 @@ async function openFile(
     await renderer.goTo(savedState.location);
     metadata.currentChapter = savedState.currentChapter;
   }
+  // Refine the coarse jump to the exact word the user last looked at.
+  // Anchor failures are silent so we keep whatever position goTo()
+  // already produced as the fallback.
+  if (savedState?.lastWordAnchor) {
+    try {
+      await renderer.goToAnchor(savedState.lastWordAnchor);
+      lastCapturedAnchor = savedState.lastWordAnchor;
+    } catch {
+      // ignore
+    }
+  }
 
   updateProgress(els, metadata);
   startAutosave();
@@ -569,6 +611,7 @@ async function openFile(
     currentChapter: metadata.currentChapter,
     totalChapters: metadata.totalChapters,
     lastOpened: Date.now(),
+    lastWordAnchor: lastCapturedAnchor ?? undefined,
   });
 }
 
@@ -587,6 +630,7 @@ function persistCurrentState(): void {
     currentChapter: currentMetadata.currentChapter,
     totalChapters: currentMetadata.totalChapters,
     lastOpened: Date.now(),
+    lastWordAnchor: lastCapturedAnchor ?? undefined,
   });
 }
 

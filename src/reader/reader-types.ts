@@ -28,6 +28,32 @@ export interface BookMetadata {
   currentChapter: number;
 }
 
+/**
+ * A word-precise bookmark anchor. Each renderer fills in its own payload
+ * shape since "exact word" means something different per format:
+ *   - EPUB: a CFI string that epub.js can `display()` directly.
+ *   - DOM: an absolute character offset against `contentEl.textContent`.
+ *   - Subtitle: cue index + offset within that cue (more resilient to
+ *     parser changes than a transcript-wide offset).
+ *   - PDF: page + textContent item index + offset within the item's str
+ *     (survives zoom/rerender since item indices are stable).
+ *
+ * `word` plus `contextBefore`/`contextAfter` exist as a snippet-based
+ * fallback for any renderer that wants to re-locate the word when its
+ * primary anchor doesn't resolve cleanly (e.g. EPUB CFI drift across
+ * epub.js version bumps, mammoth/marked output changes between sessions).
+ */
+export interface BookmarkAnchor {
+  word: string;
+  contextBefore: string;
+  contextAfter: string;
+  payload:
+    | { kind: "epub"; cfi: string }
+    | { kind: "dom"; charOffset: number }
+    | { kind: "subtitle"; cueIndex: number; charOffset: number }
+    | { kind: "pdf"; page: number; itemIndex: number; charOffset: number };
+}
+
 export interface FormatRenderer {
   readonly formatName: string;
   readonly extensions: string[];
@@ -43,6 +69,22 @@ export interface FormatRenderer {
   onRelocated(callback: (spineIndex: number) => void): void;
   applySettings(settings: ReaderSettings): void;
   destroy(): void;
+
+  /**
+   * Read the renderer's current text Selection and produce a serializable
+   * anchor for the word it points at, or null if no eligible selection
+   * exists. Called from the reader shell's processSelection() right after
+   * the user looks up a word.
+   */
+  captureAnchor(): BookmarkAnchor | null;
+
+  /**
+   * Restore a previously captured anchor: scroll/jump such that the
+   * anchored word is visible. Returns false if the anchor's payload is
+   * for a different format or could not be resolved against the current
+   * document; the caller falls back to the coarse `location` in that case.
+   */
+  goToAnchor(anchor: BookmarkAnchor): Promise<boolean>;
 }
 
 export interface ReadingState {
@@ -55,6 +97,7 @@ export interface ReadingState {
   totalChapters: number;
   lastOpened: number;
   coverDataUrl?: string;
+  lastWordAnchor?: BookmarkAnchor;
 }
 
 export interface ReaderSettings {

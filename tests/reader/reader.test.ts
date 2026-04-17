@@ -178,6 +178,42 @@ describe("reader", () => {
       const loaded = await loadReadingState("nonexistent");
       expect(loaded).toBeNull();
     });
+
+    it("round-trips a state carrying a lastWordAnchor", async () => {
+      const stored: Record<string, any> = {};
+      chrome.storage.local.set.mockImplementation(
+        (items: Record<string, any>, callback?: Function) => {
+          Object.assign(stored, items);
+          if (callback) callback();
+          return Promise.resolve();
+        },
+      );
+      chrome.storage.local.get.mockImplementation(
+        (keys: any, callback?: Function) => {
+          const key = typeof keys === "string" ? keys : Object.keys(keys)[0];
+          const result = { [key]: stored[key] };
+          if (callback) callback(result);
+          return Promise.resolve(result);
+        },
+      );
+
+      const state = createReadingState("anchored");
+      state.lastWordAnchor = {
+        word: "世界",
+        contextBefore: "你好,",
+        contextAfter: "。",
+        payload: { kind: "dom", charOffset: 7 },
+      };
+
+      await saveReadingState(state);
+      const loaded = await loadReadingState("anchored");
+      expect(loaded?.lastWordAnchor?.word).toBe("世界");
+      if (loaded?.lastWordAnchor?.payload.kind === "dom") {
+        expect(loaded.lastWordAnchor.payload.charOffset).toBe(7);
+      } else {
+        throw new Error("expected dom payload");
+      }
+    });
   });
 
   describe("getRecentFiles()", () => {

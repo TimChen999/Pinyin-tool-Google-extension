@@ -519,6 +519,72 @@ describe("EpubRenderer", () => {
     });
   });
 
+  describe("captureAnchor() / goToAnchor()", () => {
+    it("returns null when no selected event has fired yet", async () => {
+      await loadAndRender();
+      expect(renderer.captureAnchor()).toBeNull();
+    });
+
+    it("recordSelectedAnchor stashes a CFI anchor that captureAnchor returns", async () => {
+      await loadAndRender();
+      renderer.recordSelectedAnchor(
+        "epubcfi(/6/4!/4/2/4,/1:5,/1:7)",
+        "你好",
+      );
+
+      const anchor = renderer.captureAnchor();
+      expect(anchor).not.toBeNull();
+      expect(anchor!.word).toBe("你好");
+      expect(anchor!.payload.kind).toBe("epub");
+      if (anchor!.payload.kind === "epub") {
+        expect(anchor!.payload.cfi).toBe("epubcfi(/6/4!/4/2/4,/1:5,/1:7)");
+      }
+    });
+
+    it("recordSelectedAnchor ignores empty inputs", async () => {
+      await loadAndRender();
+      renderer.recordSelectedAnchor("", "你好");
+      expect(renderer.captureAnchor()).toBeNull();
+      renderer.recordSelectedAnchor("epubcfi(/6/4)", "");
+      expect(renderer.captureAnchor()).toBeNull();
+    });
+
+    it("goToAnchor calls rendition.display with the CFI", async () => {
+      const { rendition } = await loadAndRender();
+      const ok = await renderer.goToAnchor({
+        word: "你好",
+        contextBefore: "",
+        contextAfter: "",
+        payload: { kind: "epub", cfi: "epubcfi(/6/4)" },
+      });
+      expect(ok).toBe(true);
+      expect(rendition.display).toHaveBeenCalledWith("epubcfi(/6/4)");
+    });
+
+    it("goToAnchor returns false for non-epub payload", async () => {
+      await loadAndRender();
+      const ok = await renderer.goToAnchor({
+        word: "x",
+        contextBefore: "",
+        contextAfter: "",
+        payload: { kind: "dom", charOffset: 0 },
+      });
+      expect(ok).toBe(false);
+    });
+
+    it("goToAnchor returns false when display rejects", async () => {
+      const { rendition } = await loadAndRender();
+      rendition.display.mockRejectedValueOnce(new Error("CFI not found"));
+      const ok = await renderer.goToAnchor({
+        word: "x",
+        contextBefore: "",
+        contextAfter: "",
+        payload: { kind: "epub", cfi: "epubcfi(/bad)" },
+      });
+      expect(ok).toBe(false);
+    });
+  });
+
   describe("FONT_FAMILY_MAP", () => {
     it("has entries for all supported font keys", () => {
       expect(FONT_FAMILY_MAP).toHaveProperty("system");

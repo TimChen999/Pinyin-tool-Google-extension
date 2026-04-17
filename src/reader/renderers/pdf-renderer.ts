@@ -39,16 +39,25 @@ import type {
   BookMetadata,
   TocEntry,
   ReaderSettings,
+  BookmarkAnchor,
 } from "../reader-types";
 
 const BASE_SCALE = 1.5;
 const DEFAULT_FONT_SIZE = 18;
+const ANCHOR_CONTEXT_CHARS = 20;
+
+interface PdfTextItemRecord {
+  str: string;
+  startCharOffset: number;
+}
 
 interface PdfRenderedPage {
   pageNum: number;
   wrap: HTMLElement;
   canvas: HTMLCanvasElement;
   textLayerEl: HTMLElement;
+  items: PdfTextItemRecord[];
+  pageText: string;
 }
 
 export class PdfRenderer implements FormatRenderer {
@@ -169,6 +178,114 @@ export class PdfRenderer implements FormatRenderer {
     this.relocatedCallback = callback;
   }
 
+  /**
+   * Anchor on (page, item index, offset within item.str). The text
+   * layer DOM is rebuilt on every zoom (rerenderAllPages clears all
+   * containers), so we anchor on data the rebuild reproduces, not on
+   * DOM identity. Item indices match the order pdf.js returns from
+   * getTextContent(), which is stable for the same PDF + version.
+   */
+  captureAnchor(): BookmarkAnchor | null {
+    if (typeof window === "undefined") return null;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+
+    const range = sel.getRangeAt(0);
+    const layerEl = closestPdfTextLayer(range.startContainer);
+    if (!layerEl) return null;
+
+    const page = this.renderedPages.find((p) => p.textLayerEl === layerEl);
+    if (!page) return null;
+
+    const word = sel.toString().trim();
+    if (!word) return null;
+
+    const anchorElement = closestPdfSpan(range.startContainer, layerEl);
+    let itemIndex = 0;
+    let charOffset = 0;
+    if (anchorElement) {
+      const spans = Array.from(layerEl.querySelectorAll<HTMLElement>("span"));
+      const idx = spans.indexOf(anchorElement);
+      if (idx >= 0 && idx < page.items.length) {
+        itemIndex = idx;
+        charOffset = clampOffset(range.startOffset, page.items[idx].str.length);
+      } else {
+        const found = locateInItems(page.items, word);
+        if (found) {
+          itemIndex = found.itemIndex;
+          charOffset = found.charOffset;
+        }
+      }
+    } else {
+      const found = locateInItems(page.items, word);
+      if (found) {
+        itemIndex = found.itemIndex;
+        charOffset = found.charOffset;
+      }
+    }
+
+    const absoluteOffset =
+      (page.items[itemIndex]?.startCharOffset ?? 0) + charOffset;
+    const contextBefore = page.pageText.slice(
+      Math.max(0, absoluteOffset - ANCHOR_CONTEXT_CHARS),
+      absoluteOffset,
+    );
+    const contextAfter = page.pageText.slice(
+      absoluteOffset + word.length,
+      absoluteOffset + word.length + ANCHOR_CONTEXT_CHARS,
+    );
+
+    return {
+      word,
+      contextBefore,
+      contextAfter,
+      payload: {
+        kind: "pdf",
+        page: page.pageNum,
+        itemIndex,
+        charOffset,
+      },
+    };
+  }
+
+  async goToAnchor(anchor: BookmarkAnchor): Promise<boolean> {
+    if (anchor.payload.kind !== "pdf") return false;
+    const { page: pageNum, itemIndex, charOffset } = anchor.payload;
+    if (pageNum < 1 || pageNum > this.numPages) return false;
+
+    await this.goTo(pageNum);
+
+    const page = this.renderedPages.find((p) => p.pageNum === pageNum);
+    if (!page) return true; // page-level jump succeeded
+
+    let resolvedIndex = itemIndex;
+    let resolvedOffset = charOffset;
+    const expected = page.items[itemIndex]?.str ?? "";
+    if (
+      itemIndex < 0 ||
+      itemIndex >= page.items.length ||
+      charOffset + anchor.word.length > expected.length ||
+      expected.slice(charOffset, charOffset + anchor.word.length) !==
+        anchor.word
+    ) {
+      const fallback = locateInItems(page.items, anchor.word, anchor.contextBefore);
+      if (fallback) {
+        resolvedIndex = fallback.itemIndex;
+        resolvedOffset = fallback.charOffset;
+      }
+    }
+
+    const spans = Array.from(
+      page.textLayerEl.querySelectorAll<HTMLElement>("span"),
+    );
+    const targetSpan = spans[resolvedIndex];
+    if (targetSpan) {
+      targetSpan.scrollIntoView({ block: "center" });
+    }
+    void resolvedOffset;
+    return true;
+  }
+
   applySettings(settings: ReaderSettings): void {
     if (!this.pdf || !this.container) return;
     const newScale = (settings.fontSize / DEFAULT_FONT_SIZE) * BASE_SCALE;
@@ -231,8 +348,22 @@ export class PdfRenderer implements FormatRenderer {
       await page.render({ canvasContext: ctx, viewport, canvas }).promise;
     }
 
+    let items: PdfTextItemRecord[] = [];
+    let pageText = "";
     try {
       const textContent = await page.getTextContent();
+      const rawItems: any[] = Array.isArray(textContent?.items)
+        ? textContent.items
+        : [];
+      let cursor = 0;
+      items = rawItems.map((it) => {
+        const str = typeof it?.str === "string" ? it.str : "";
+        const record: PdfTextItemRecord = { str, startCharOffset: cursor };
+        cursor += str.length;
+        return record;
+      });
+      pageText = items.map((it) => it.str).join("");
+
       const TextLayerCtor: any = (pdfjsLib as any).TextLayer;
       if (TextLayerCtor) {
         const textLayer = new TextLayerCtor({
@@ -247,7 +378,7 @@ export class PdfRenderer implements FormatRenderer {
       // readable visually; only selection-based pinyin is impacted.
     }
 
-    return { pageNum, wrap, canvas, textLayerEl };
+    return { pageNum, wrap, canvas, textLayerEl, items, pageText };
   }
 
   private async rerenderAllPages(): Promise<void> {
@@ -342,6 +473,73 @@ export class PdfRenderer implements FormatRenderer {
       return 0;
     }
   }
+}
+
+// ─── Bookmark-anchor helpers ───────────────────────────────────────
+
+function closestPdfTextLayer(node: Node): HTMLElement | null {
+  let cur: Node | null = node;
+  while (cur) {
+    if (cur.nodeType === Node.ELEMENT_NODE) {
+      const el = cur as HTMLElement;
+      if (el.classList?.contains("pdf-text-layer")) return el;
+    }
+    cur = cur.parentNode;
+  }
+  return null;
+}
+
+function closestPdfSpan(
+  node: Node,
+  layer: HTMLElement,
+): HTMLElement | null {
+  let cur: Node | null = node;
+  while (cur && cur !== layer) {
+    if (cur.nodeType === Node.ELEMENT_NODE) {
+      const el = cur as HTMLElement;
+      if (el.tagName === "SPAN" && el.parentElement === layer) return el;
+    }
+    cur = cur.parentNode;
+  }
+  return null;
+}
+
+function clampOffset(offset: number, max: number): number {
+  if (!Number.isFinite(offset) || offset < 0) return 0;
+  return Math.min(offset, max);
+}
+
+/**
+ * Find `word` in a page's text-content items array. Used both as a
+ * primary fallback when DOM-span lookup fails and as the goToAnchor
+ * fallback when the saved (item, offset) doesn't land on `word` (e.g.
+ * the same PDF was re-extracted by a newer pdfjs-dist version).
+ */
+function locateInItems(
+  items: PdfTextItemRecord[],
+  word: string,
+  contextBefore?: string,
+): { itemIndex: number; charOffset: number } | null {
+  if (!word || items.length === 0) return null;
+
+  const probe = contextBefore ? contextBefore + word : word;
+  const probeOffset = contextBefore ? contextBefore.length : 0;
+
+  for (let i = 0; i < items.length; i++) {
+    const idx = items[i].str.indexOf(probe);
+    if (idx >= 0) {
+      return { itemIndex: i, charOffset: idx + probeOffset };
+    }
+  }
+  if (probe !== word) {
+    for (let i = 0; i < items.length; i++) {
+      const idx = items[i].str.indexOf(word);
+      if (idx >= 0) {
+        return { itemIndex: i, charOffset: idx };
+      }
+    }
+  }
+  return null;
 }
 
 // ─── pdf.js loader ─────────────────────────────────────────────────

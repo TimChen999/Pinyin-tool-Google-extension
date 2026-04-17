@@ -85,6 +85,86 @@ describe("SubtitleRenderer", () => {
       expect(container.innerHTML).toBe("");
     });
   });
+
+  describe("captureAnchor() / goToAnchor()", () => {
+    async function setupTwoCues(): Promise<HTMLElement> {
+      const raw = [
+        "1",
+        "00:00:01,000 --> 00:00:02,000",
+        "你好世界",
+        "",
+        "2",
+        "00:00:03,000 --> 00:00:04,000",
+        "再见朋友",
+      ].join("\n");
+      await renderer.load(makeFile("a.srt", raw));
+      const container = mountInScrollableHost();
+      await renderer.renderTo(container);
+      return container;
+    }
+
+    it("returns a subtitle anchor when selecting inside a cue", async () => {
+      const container = await setupTwoCues();
+      const cues = container.querySelectorAll(".subtitle-cue");
+      const text = cues[1].querySelector(".subtitle-text")!.firstChild as Text;
+
+      const range = document.createRange();
+      range.setStart(text, 0);
+      range.setEnd(text, 2);
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(range);
+
+      const anchor = renderer.captureAnchor();
+      expect(anchor).not.toBeNull();
+      expect(anchor!.word).toBe("再见");
+      expect(anchor!.payload.kind).toBe("subtitle");
+      if (anchor!.payload.kind === "subtitle") {
+        expect(anchor!.payload.cueIndex).toBe(2);
+        expect(anchor!.payload.charOffset).toBe(0);
+      }
+    });
+
+    it("returns null when no selection exists", async () => {
+      await setupTwoCues();
+      window.getSelection()?.removeAllRanges();
+      expect(renderer.captureAnchor()).toBeNull();
+    });
+
+    it("goToAnchor returns true and locates the right cue", async () => {
+      const container = await setupTwoCues();
+      const result = await renderer.goToAnchor({
+        word: "再见",
+        contextBefore: "",
+        contextAfter: "",
+        payload: { kind: "subtitle", cueIndex: 2, charOffset: 0 },
+      });
+      expect(result).toBe(true);
+      expect(container.querySelector('[data-cue-index="2"]')).not.toBeNull();
+    });
+
+    it("goToAnchor returns false for non-subtitle payload", async () => {
+      await setupTwoCues();
+      const result = await renderer.goToAnchor({
+        word: "x",
+        contextBefore: "",
+        contextAfter: "",
+        payload: { kind: "epub", cfi: "epubcfi(/6/4)" },
+      });
+      expect(result).toBe(false);
+    });
+
+    it("goToAnchor returns false when cueIndex is missing", async () => {
+      await setupTwoCues();
+      const result = await renderer.goToAnchor({
+        word: "x",
+        contextBefore: "",
+        contextAfter: "",
+        payload: { kind: "subtitle", cueIndex: 999, charOffset: 0 },
+      });
+      expect(result).toBe(false);
+    });
+  });
 });
 
 // ─── Helpers ───────────────────────────────────────────────────────

@@ -10,10 +10,18 @@
 
 import ePub from "epubjs";
 import type { Book, Rendition, NavItem } from "epubjs";
-import type { FormatRenderer, BookMetadata, TocEntry, ReaderSettings } from "../reader-types";
+import type {
+  FormatRenderer,
+  BookMetadata,
+  TocEntry,
+  ReaderSettings,
+  BookmarkAnchor,
+} from "../reader-types";
 import { FONT_FAMILY_MAP, THEME_COLORS } from "./_shared/typography";
 
 export { FONT_FAMILY_MAP, THEME_COLORS };
+
+const ANCHOR_CONTEXT_CHARS = 20;
 
 export class EpubRenderer implements FormatRenderer {
   readonly formatName = "EPUB";
@@ -25,6 +33,7 @@ export class EpubRenderer implements FormatRenderer {
   private currentFlow: "scrolled-doc" | "paginated" = "scrolled-doc";
   private relocatedCallback: ((spineIndex: number) => void) | null = null;
   private lastKnownCfi = "";
+  private pendingAnchor: BookmarkAnchor | null = null;
 
   async load(file: File): Promise<BookMetadata> {
     const arrayBuffer = await file.arrayBuffer();
@@ -130,10 +139,78 @@ export class EpubRenderer implements FormatRenderer {
     this.book?.destroy();
     this.rendition = null;
     this.book = null;
+    this.pendingAnchor = null;
   }
 
   getRendition(): Rendition | null {
     return this.rendition;
+  }
+
+  /**
+   * Stash the most recent CFI range from epub.js's `selected` event so
+   * captureAnchor() can return a word-precise anchor on demand. The
+   * reader's selection wiring calls this from inside the same handler
+   * that already extracts the selection text + rect for the overlay.
+   *
+   * `selectedText` is what the user actually highlighted (passed
+   * separately because reading the iframe Selection again here can
+   * race with overlay activation).
+   */
+  recordSelectedAnchor(cfiRange: string, selectedText: string, contents?: any): void {
+    if (!cfiRange || !selectedText) {
+      return;
+    }
+    const word = selectedText.trim();
+    if (!word) return;
+
+    let contextBefore = "";
+    let contextAfter = "";
+    try {
+      const doc = contents?.document as Document | undefined;
+      const win = contents?.window as Window | undefined;
+      const sel = win?.getSelection?.();
+      if (sel && sel.rangeCount > 0 && doc?.body) {
+        const range = sel.getRangeAt(0);
+        const bodyText = doc.body.textContent ?? "";
+        const idx = bodyText.indexOf(word);
+        if (idx >= 0) {
+          contextBefore = bodyText.slice(
+            Math.max(0, idx - ANCHOR_CONTEXT_CHARS),
+            idx,
+          );
+          contextAfter = bodyText.slice(
+            idx + word.length,
+            idx + word.length + ANCHOR_CONTEXT_CHARS,
+          );
+        }
+        void range;
+      }
+    } catch {
+      // Context extraction is best-effort; the CFI itself is the
+      // authoritative anchor and works without surrounding snippets.
+    }
+
+    this.pendingAnchor = {
+      word,
+      contextBefore,
+      contextAfter,
+      payload: { kind: "epub", cfi: cfiRange },
+    };
+  }
+
+  captureAnchor(): BookmarkAnchor | null {
+    return this.pendingAnchor;
+  }
+
+  async goToAnchor(anchor: BookmarkAnchor): Promise<boolean> {
+    if (!this.rendition) return false;
+    if (anchor.payload.kind !== "epub") return false;
+    try {
+      await this.rendition.display(anchor.payload.cfi);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   getSpineIndex(href: string): number {

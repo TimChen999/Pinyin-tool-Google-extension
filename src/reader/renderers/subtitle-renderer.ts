@@ -16,13 +16,20 @@
  * SRT, WebVTT, and a subset of ASS/SSA Dialogue lines.
  */
 
-import { DomRendererBase } from "./_shared/dom-renderer-base";
+import {
+  DomRendererBase,
+  absoluteCharOffset,
+  nodeAtOffset,
+  snippetSearch,
+} from "./_shared/dom-renderer-base";
 import {
   parseSubtitles,
   detectSubtitleFormat,
   type SubtitleCue,
 } from "./_shared/subtitle-parser";
-import type { BookMetadata } from "../reader-types";
+import type { BookMetadata, BookmarkAnchor } from "../reader-types";
+
+const ANCHOR_CONTEXT_CHARS = 20;
 
 export class SubtitleRenderer extends DomRendererBase {
   readonly formatName = "Subtitles";
@@ -79,4 +86,108 @@ export class SubtitleRenderer extends DomRendererBase {
     }
     target.appendChild(fragment);
   }
+
+  /**
+   * Anchor on `cueIndex + offset within cue` rather than a transcript-
+   * wide offset. The cue list can shrink/expand if the parser changes
+   * (we already had one such change between SRT and ASS support), but
+   * cue indices are stable per file and offsets within a cue are tiny.
+   */
+  override captureAnchor(): BookmarkAnchor | null {
+    if (!this.contentEl) return null;
+    const sel = typeof window !== "undefined" ? window.getSelection() : null;
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+
+    const range = sel.getRangeAt(0);
+    if (!this.contentEl.contains(range.startContainer)) return null;
+
+    const cueEl = closestCueElement(range.startContainer);
+    if (!cueEl) return null;
+    const cueIndex = parseInt(cueEl.dataset.cueIndex ?? "", 10);
+    if (!Number.isFinite(cueIndex)) return null;
+
+    const textEl = cueEl.querySelector<HTMLElement>(".subtitle-text");
+    if (!textEl || !textEl.contains(range.startContainer)) return null;
+
+    const charOffset = absoluteCharOffset(
+      textEl,
+      range.startContainer,
+      range.startOffset,
+    );
+    if (charOffset < 0) return null;
+
+    const word = sel.toString().trim();
+    if (!word) return null;
+
+    const cueText = textEl.textContent ?? "";
+    const contextBefore = cueText.slice(
+      Math.max(0, charOffset - ANCHOR_CONTEXT_CHARS),
+      charOffset,
+    );
+    const contextAfter = cueText.slice(
+      charOffset + word.length,
+      charOffset + word.length + ANCHOR_CONTEXT_CHARS,
+    );
+
+    return {
+      word,
+      contextBefore,
+      contextAfter,
+      payload: { kind: "subtitle", cueIndex, charOffset },
+    };
+  }
+
+  override async goToAnchor(anchor: BookmarkAnchor): Promise<boolean> {
+    if (!this.contentEl) return false;
+    if (anchor.payload.kind !== "subtitle") return false;
+
+    const { cueIndex, charOffset } = anchor.payload;
+    const cueEl = this.contentEl.querySelector<HTMLElement>(
+      `.subtitle-cue[data-cue-index="${cssNumber(cueIndex)}"]`,
+    );
+    if (!cueEl) return false;
+    const textEl = cueEl.querySelector<HTMLElement>(".subtitle-text");
+    if (!textEl) return false;
+
+    const cueText = textEl.textContent ?? "";
+    let resolved = charOffset;
+    if (
+      charOffset < 0 ||
+      charOffset + anchor.word.length > cueText.length ||
+      cueText.slice(charOffset, charOffset + anchor.word.length) !== anchor.word
+    ) {
+      const fallback = snippetSearch(cueText, anchor, charOffset);
+      if (fallback == null) {
+        cueEl.scrollIntoView({ block: "center" });
+        return true;
+      }
+      resolved = fallback;
+    }
+
+    const located = nodeAtOffset(textEl, resolved);
+    const target =
+      located?.node.parentElement ??
+      (located?.node.nodeType === Node.ELEMENT_NODE
+        ? (located.node as HTMLElement)
+        : null) ??
+      cueEl;
+    target.scrollIntoView({ block: "center" });
+    return true;
+  }
+}
+
+function closestCueElement(node: Node): HTMLElement | null {
+  let cur: Node | null = node;
+  while (cur) {
+    if (cur.nodeType === Node.ELEMENT_NODE) {
+      const el = cur as HTMLElement;
+      if (el.classList?.contains("subtitle-cue")) return el;
+    }
+    cur = cur.parentNode;
+  }
+  return null;
+}
+
+function cssNumber(n: number): string {
+  return String(Math.trunc(n));
 }

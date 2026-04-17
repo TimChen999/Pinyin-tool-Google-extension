@@ -261,6 +261,139 @@ describe("PdfRenderer", () => {
       expect(() => renderer.applySettings(DEFAULT_READER_SETTINGS)).not.toThrow();
     });
   });
+
+  describe("captureAnchor() / goToAnchor()", () => {
+    function buildPdfDocWithItems() {
+      const doc = buildMockDoc(2);
+      doc.getPage = vi.fn((n: number) =>
+        Promise.resolve({
+          pageNum: n,
+          getViewport: vi.fn(({ scale }: { scale: number }) => ({
+            width: 100 * scale,
+            height: 140 * scale,
+            scale,
+          })),
+          render: vi.fn().mockReturnValue({ promise: Promise.resolve(undefined) }),
+          getTextContent: vi.fn().mockResolvedValue({
+            items: [
+              { str: "你好" },
+              { str: "世界" },
+              { str: "再见" },
+            ],
+          }),
+        }),
+      );
+      return doc;
+    }
+
+    /**
+     * pdfjs-dist's TextLayer is mocked, so the .pdf-text-layer element
+     * is empty after render(). Manually populate it with one <span> per
+     * item so captureAnchor's span-index lookup has something to walk.
+     */
+    function populateTextLayerSpans(container: HTMLElement, strings: string[]): void {
+      container.querySelectorAll<HTMLElement>(".pdf-text-layer").forEach((layer) => {
+        layer.innerHTML = "";
+        for (const s of strings) {
+          const span = document.createElement("span");
+          span.textContent = s;
+          layer.appendChild(span);
+        }
+      });
+    }
+
+    it("captures a pdf anchor with the selected word", async () => {
+      mockGetDocument.mockReturnValueOnce({
+        promise: Promise.resolve(buildPdfDocWithItems()),
+      });
+      await renderer.load(makeFile("a.pdf"));
+      const container = mountInScrollableHost();
+      await renderer.renderTo(container);
+
+      populateTextLayerSpans(container, ["你好", "世界", "再见"]);
+      const layer = container.querySelectorAll<HTMLElement>(".pdf-text-layer")[0];
+      const span = layer.querySelectorAll("span")[1];
+      const textNode = span.firstChild as Text;
+
+      const range = document.createRange();
+      range.setStart(textNode, 0);
+      range.setEnd(textNode, 2);
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(range);
+
+      const anchor = renderer.captureAnchor();
+      expect(anchor).not.toBeNull();
+      expect(anchor!.word).toBe("世界");
+      expect(anchor!.payload.kind).toBe("pdf");
+      if (anchor!.payload.kind === "pdf") {
+        expect(anchor!.payload.page).toBe(1);
+        expect(anchor!.payload.itemIndex).toBe(1);
+      }
+    });
+
+    it("returns null when no selection exists", async () => {
+      mockGetDocument.mockReturnValueOnce({
+        promise: Promise.resolve(buildPdfDocWithItems()),
+      });
+      await renderer.load(makeFile("a.pdf"));
+      const container = mountInScrollableHost();
+      await renderer.renderTo(container);
+      window.getSelection()?.removeAllRanges();
+      expect(renderer.captureAnchor()).toBeNull();
+    });
+
+    it("goToAnchor returns true and navigates to the page", async () => {
+      mockGetDocument.mockReturnValueOnce({
+        promise: Promise.resolve(buildPdfDocWithItems()),
+      });
+      await renderer.load(makeFile("a.pdf"));
+      const container = mountInScrollableHost();
+      await renderer.renderTo(container);
+      populateTextLayerSpans(container, ["你好", "世界", "再见"]);
+
+      const ok = await renderer.goToAnchor({
+        word: "世界",
+        contextBefore: "你好",
+        contextAfter: "再见",
+        payload: { kind: "pdf", page: 2, itemIndex: 1, charOffset: 0 },
+      });
+      expect(ok).toBe(true);
+      expect(renderer.getCurrentLocation()).toBe("2");
+    });
+
+    it("goToAnchor returns false for non-pdf payload", async () => {
+      mockGetDocument.mockReturnValueOnce({
+        promise: Promise.resolve(buildPdfDocWithItems()),
+      });
+      await renderer.load(makeFile("a.pdf"));
+      const container = mountInScrollableHost();
+      await renderer.renderTo(container);
+      const ok = await renderer.goToAnchor({
+        word: "x",
+        contextBefore: "",
+        contextAfter: "",
+        payload: { kind: "dom", charOffset: 0 },
+      });
+      expect(ok).toBe(false);
+    });
+
+    it("goToAnchor returns false when page is out of range", async () => {
+      mockGetDocument.mockReturnValueOnce({
+        promise: Promise.resolve(buildPdfDocWithItems()),
+      });
+      await renderer.load(makeFile("a.pdf"));
+      const container = mountInScrollableHost();
+      await renderer.renderTo(container);
+      const ok = await renderer.goToAnchor({
+        word: "x",
+        contextBefore: "",
+        contextAfter: "",
+        payload: { kind: "pdf", page: 99, itemIndex: 0, charOffset: 0 },
+      });
+      expect(ok).toBe(false);
+    });
+  });
 });
 
 // ─── Helpers ───────────────────────────────────────────────────────
