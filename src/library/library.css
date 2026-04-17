@@ -82,6 +82,9 @@ body {
   display: flex;
   min-height: 0;
   overflow: hidden;
+  /* Establishes the containing block for hidden panes that
+     are positioned absolutely so they keep their full size. */
+  position: relative;
 }
 
 .library-pane {
@@ -92,8 +95,17 @@ body {
   min-height: 0;
 }
 
+/* Hidden panes stay laid out at full size instead of `display:none`,
+   so the EPUB iframe inside the reader pane never collapses to 0x0
+   and epub.js doesn't re-display the spine item from the top when
+   the user comes back. visibility:hidden also removes the subtree
+   from the accessibility tree; pointer-events:none prevents stray
+   clicks from reaching the inactive pane. */
 .library-pane.hidden {
-  display: none !important;
+  visibility: hidden;
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
 }
 
 /* Reader pane keeps its fixed toolbar/footer via reader.css; just

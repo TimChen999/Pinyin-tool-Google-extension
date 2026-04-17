@@ -14,12 +14,26 @@
  * hub.ts) with the library-level tab indicator.
  */
 
-import { initReader } from "../reader/reader";
+import { initReader, captureReaderState, restoreReaderPosition } from "../reader/reader";
 import { initHub, refreshVocabView, refreshFlashcardsView } from "../hub/hub";
 
 type LibraryTab = "reader" | "vocab" | "flashcards";
 
 const VALID_TABS: ReadonlySet<LibraryTab> = new Set(["reader", "vocab", "flashcards"]);
+
+/**
+ * Tracks the previously active library tab so activateLibraryTab can
+ * detect *transitions* (leaving the reader, entering the reader) and
+ * snapshot/restore the reader's exact position. Without this snapshot
+ * epub.js's internal window-resize handler can collapse the user back
+ * to the spine-item start when the reader pane comes back -- even
+ * with the CSS pane-hiding fix, because epub.js's resize→clear→
+ * display(start.cfi) chain doesn't depend on the iframe being 0x0.
+ *
+ * Initialized to null so the first activateLibraryTab call (during
+ * initLibrary) doesn't try to capture before any state exists.
+ */
+let activeLibraryTab: LibraryTab | null = null;
 
 // ─── Tab switching ─────────────────────────────────────────────────
 
@@ -34,6 +48,18 @@ function getTabPane(tab: LibraryTab): HTMLElement | null {
 }
 
 export function activateLibraryTab(tab: LibraryTab): void {
+  const wasReader = activeLibraryTab === "reader";
+  const becomesReader = tab === "reader";
+
+  // Snapshot reader position BEFORE flipping any CSS classes. If we
+  // wait, epub.js's window-resize listener may already have fired its
+  // clear()+display(start.cfi) chain by the time we read the location,
+  // and we'd capture the snapped position instead of the user's real
+  // one.
+  if (wasReader && !becomesReader) {
+    captureReaderState();
+  }
+
   document.querySelectorAll<HTMLButtonElement>(".library-tab").forEach((btn) => {
     const isActive = btn.dataset.libraryTab === tab;
     btn.classList.toggle("active", isActive);
@@ -58,7 +84,14 @@ export function activateLibraryTab(tab: LibraryTab): void {
     void refreshVocabView();
   } else if (tab === "flashcards") {
     void refreshFlashcardsView();
+  } else if (tab === "reader" && !wasReader && activeLibraryTab !== null) {
+    // Re-assert the reader's position after epub.js's resize handler
+    // has had a chance to settle. restoreReaderPosition waits two
+    // animation frames internally before applying anchor/location.
+    void restoreReaderPosition();
   }
+
+  activeLibraryTab = tab;
 }
 
 function setupLibraryTabs(): void {

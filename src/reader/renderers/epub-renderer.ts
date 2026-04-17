@@ -147,6 +147,31 @@ export class EpubRenderer implements FormatRenderer {
   }
 
   /**
+   * Read the raw scroll offset of the `.epub-container` element in
+   * scrolled-doc mode. Returns null if not in scroll mode or the
+   * element isn't mounted yet. Used by the reader shell to snapshot
+   * exact pixel position before a tab switch -- epub.js's CFI-based
+   * restore can land on the spine-item start instead of the user's
+   * actual scroll position when its internal resize handler fires.
+   */
+  getScrollContainerTop(): number | null {
+    if (this.currentFlow !== "scrolled-doc") return null;
+    const scrollEl = this.container?.querySelector(".epub-container") as HTMLElement | null;
+    return scrollEl ? scrollEl.scrollTop : null;
+  }
+
+  /**
+   * Force the `.epub-container` scroll offset directly, bypassing
+   * epub.js's location/CFI logic. Paired with getScrollContainerTop()
+   * for tab-switch restoration. No-op outside scrolled-doc mode.
+   */
+  setScrollContainerTop(top: number): void {
+    if (this.currentFlow !== "scrolled-doc") return;
+    const scrollEl = this.container?.querySelector(".epub-container") as HTMLElement | null;
+    if (scrollEl) scrollEl.scrollTop = top;
+  }
+
+  /**
    * Stash the most recent CFI range from epub.js's `selected` event so
    * captureAnchor() can return a word-precise anchor on demand. The
    * reader's selection wiring calls this from inside the same handler

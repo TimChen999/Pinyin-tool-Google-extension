@@ -15,6 +15,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("../../src/reader/reader", () => ({
   initReader: vi.fn().mockResolvedValue(undefined),
+  captureReaderState: vi.fn(),
+  restoreReaderPosition: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../src/hub/hub", () => ({
@@ -23,10 +25,12 @@ vi.mock("../../src/hub/hub", () => ({
   refreshFlashcardsView: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { initReader } from "../../src/reader/reader";
+import { initReader, captureReaderState, restoreReaderPosition } from "../../src/reader/reader";
 import { initHub, refreshVocabView, refreshFlashcardsView } from "../../src/hub/hub";
 
 const mockedInitReader = initReader as ReturnType<typeof vi.fn>;
+const mockedCaptureReaderState = captureReaderState as ReturnType<typeof vi.fn>;
+const mockedRestoreReaderPosition = restoreReaderPosition as ReturnType<typeof vi.fn>;
 const mockedInitHub = initHub as ReturnType<typeof vi.fn>;
 const mockedRefreshVocabView = refreshVocabView as ReturnType<typeof vi.fn>;
 const mockedRefreshFlashcardsView = refreshFlashcardsView as ReturnType<typeof vi.fn>;
@@ -65,6 +69,8 @@ async function loadLibrary() {
 
   vi.doMock("../../src/reader/reader", () => ({
     initReader: mockedInitReader,
+    captureReaderState: mockedCaptureReaderState,
+    restoreReaderPosition: mockedRestoreReaderPosition,
   }));
   vi.doMock("../../src/hub/hub", () => ({
     initHub: mockedInitHub,
@@ -92,6 +98,8 @@ describe("library page", () => {
     buildLibraryDOM();
     chrome.storage.sync.get.mockImplementation(() => Promise.resolve({}));
     mockedInitReader.mockReset().mockResolvedValue(undefined);
+    mockedCaptureReaderState.mockReset();
+    mockedRestoreReaderPosition.mockReset().mockResolvedValue(undefined);
     mockedInitHub.mockReset().mockResolvedValue(undefined);
     mockedRefreshVocabView.mockReset().mockResolvedValue(undefined);
     mockedRefreshFlashcardsView.mockReset().mockResolvedValue(undefined);
@@ -225,6 +233,64 @@ describe("library page", () => {
       expect(tabButton("vocab").getAttribute("aria-selected")).toBe("true");
       expect(tabButton("reader").getAttribute("aria-selected")).toBe("false");
       expect(tabButton("flashcards").getAttribute("aria-selected")).toBe("false");
+    });
+  });
+
+  // ─── Reader position capture/restore on tab switch ───────────────
+
+  describe("reader position preservation", () => {
+    it("captures reader state when leaving the reader tab", async () => {
+      const mod = await loadLibrary();
+      await mod.initLibrary();
+      mockedCaptureReaderState.mockClear();
+
+      tabButton("vocab").click();
+
+      expect(mockedCaptureReaderState).toHaveBeenCalledTimes(1);
+    });
+
+    it("restores reader position when returning to the reader tab", async () => {
+      const mod = await loadLibrary();
+      await mod.initLibrary();
+
+      tabButton("vocab").click();
+      mockedRestoreReaderPosition.mockClear();
+
+      tabButton("reader").click();
+
+      expect(mockedRestoreReaderPosition).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not capture or restore on initial activation", async () => {
+      const mod = await loadLibrary();
+      await mod.initLibrary();
+
+      // initLibrary calls activateLibraryTab once with no prior state.
+      expect(mockedCaptureReaderState).not.toHaveBeenCalled();
+      expect(mockedRestoreReaderPosition).not.toHaveBeenCalled();
+    });
+
+    it("does not capture when switching between non-reader tabs", async () => {
+      const mod = await loadLibrary();
+      await mod.initLibrary();
+
+      tabButton("vocab").click();
+      mockedCaptureReaderState.mockClear();
+
+      tabButton("flashcards").click();
+
+      expect(mockedCaptureReaderState).not.toHaveBeenCalled();
+    });
+
+    it("does not restore when staying on the reader tab", async () => {
+      const mod = await loadLibrary();
+      await mod.initLibrary();
+      mockedRestoreReaderPosition.mockClear();
+
+      // No-op tab click on the already-active tab.
+      tabButton("reader").click();
+
+      expect(mockedRestoreReaderPosition).not.toHaveBeenCalled();
     });
   });
 

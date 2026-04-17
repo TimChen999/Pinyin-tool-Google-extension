@@ -76,6 +76,114 @@ let readerSettings: ReaderSettings = { ...DEFAULT_READER_SETTINGS };
 let lastCapturedAnchor: BookmarkAnchor | null = null;
 
 /**
+ * Snapshot taken right before the user navigates away from the reader
+ * tab in the library shell. Used by restoreReaderPosition() because
+ * epub.js's internal window-resize handler can fire when the pane
+ * goes from absolute back to flex, calling clear()+display(start.cfi)
+ * which collapses the user back to the spine-item-level CFI (chapter
+ * top in scroll mode). Capturing here lets us re-apply the user's
+ * actual scroll position regardless of what epub.js does to its own
+ * `lastKnownCfi` in the meantime.
+ */
+let savedTabSwitchLocation: string | null = null;
+let savedTabSwitchScrollTop: number | null = null;
+
+/**
+ * Re-apply the most recent word anchor against whatever the renderer's
+ * current state is. Used after live operations that disturb position
+ * without explicit user intent: settings-panel changes (font, theme,
+ * line spacing), reading-mode toggle, PDF zoom-induced rerender.
+ */
+async function refineToLastAnchor(): Promise<void> {
+  if (!currentRenderer || !lastCapturedAnchor) return;
+  try {
+    await currentRenderer.goToAnchor(lastCapturedAnchor);
+  } catch {
+    // Anchor failed to resolve -- leave the renderer wherever it
+    // settled, same fallback behavior as the openFile restore path.
+  }
+}
+
+/**
+ * Snapshot the reader's current position. Called by the library shell
+ * when the user is about to navigate away from the reader tab.
+ *
+ * Captures both the renderer's coarse location string AND, for EPUB
+ * scroll mode, the raw `.epub-container` scrollTop -- the latter
+ * because epub.js's CFI resolution after its own resize handler runs
+ * can collapse to chapter-start, and direct scroll restoration is the
+ * only reliable way back. Other renderers' `getCurrentLocation()` is
+ * already exact (DOM = scrollTop, PDF = page).
+ */
+export function captureReaderState(): void {
+  if (!currentRenderer) return;
+  flushDebouncedPersist();
+  try {
+    savedTabSwitchLocation = currentRenderer.getCurrentLocation() || null;
+  } catch {
+    savedTabSwitchLocation = null;
+  }
+  savedTabSwitchScrollTop = null;
+  if (currentRenderer instanceof EpubRenderer) {
+    const top = currentRenderer.getScrollContainerTop();
+    if (top != null) savedTabSwitchScrollTop = top;
+  }
+}
+
+/**
+ * Restore the reader's position after the user navigates back to the
+ * reader tab. Waits two animation frames so any browser-triggered
+ * layout/resize (and epub.js's resulting clear+display dance) has
+ * fully settled before we reassert the user's actual position.
+ *
+ * Restoration order, most precise first:
+ *   1. The word-anchor bookmark (covers the case where the user has
+ *      looked up at least one Chinese word in this session).
+ *   2. The captured pre-switch location string (re-runs goTo).
+ *   3. For EPUB scroll mode, the captured raw scrollTop on the
+ *      `.epub-container` element -- bypasses epub.js's CFI logic.
+ */
+export async function restoreReaderPosition(): Promise<void> {
+  if (!currentRenderer) return;
+  await waitTwoFrames();
+
+  if (lastCapturedAnchor) {
+    try {
+      const ok = await currentRenderer.goToAnchor(lastCapturedAnchor);
+      if (ok) {
+        return;
+      }
+    } catch {
+      // fall through to coarse fallback
+    }
+  }
+
+  if (savedTabSwitchLocation) {
+    try {
+      await currentRenderer.goTo(savedTabSwitchLocation);
+    } catch {
+      // ignore
+    }
+  }
+  if (
+    currentRenderer instanceof EpubRenderer &&
+    savedTabSwitchScrollTop != null
+  ) {
+    currentRenderer.setScrollContainerTop(savedTabSwitchScrollTop);
+  }
+}
+
+function waitTwoFrames(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (typeof requestAnimationFrame !== "function") {
+      setTimeout(resolve, 16);
+      return;
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+}
+
+/**
  * Map<cacheKey, in-flight queryLLM Promise>. Mirrors the dedup map in
  * the background service worker so that rapid re-renders, scroll
  * relocations, and repeat selections in the reader don't fire multiple
@@ -520,6 +628,8 @@ async function openFile(
   // Reset before loading the new file so a stale anchor from the
   // previous book can't be persisted against this one's hash.
   lastCapturedAnchor = null;
+  savedTabSwitchLocation = null;
+  savedTabSwitchScrollTop = null;
 
   const renderer = getRendererForFile(file);
   if (!renderer) {
@@ -702,6 +812,11 @@ function applyCurrentSettings(els: ReturnType<typeof getElements>): void {
   applyTheme(readerSettings.theme);
   if (currentRenderer) {
     currentRenderer.applySettings(readerSettings);
+    // DOM renderers reflow text without touching scrollTop, so the
+    // pixel position now points at different words. PDF rerenders
+    // (rebuilds pages) handle their own page-level restore. Either
+    // way we want to land back on the user's last word if we have it.
+    void refineToLastAnchor();
   }
 }
 
@@ -881,6 +996,9 @@ export async function initReader(): Promise<void> {
       await currentRenderer.applyReadingMode(readerSettings.readingMode, readerSettings);
       attachSelectionHandler(currentRenderer);
       attachKeyHandler(currentRenderer, els);
+      // applyReadingMode rebuilds the rendition and only restores the
+      // chapter-level CFI; refine to the exact word if we have one.
+      await refineToLastAnchor();
     }
 
     els.settingsPanel.classList.add("hidden");

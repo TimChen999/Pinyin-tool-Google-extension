@@ -260,6 +260,30 @@ describe("PdfRenderer", () => {
     it("does not throw when called before load", () => {
       expect(() => renderer.applySettings(DEFAULT_READER_SETTINGS)).not.toThrow();
     });
+
+    it("restores currentPage after a font-size-induced rerender", async () => {
+      mockGetDocument.mockReturnValueOnce({
+        promise: Promise.resolve(buildMockDoc(5)),
+      });
+      await renderer.load(makeFile("a.pdf"));
+      const container = mountInScrollableHost();
+      await renderer.renderTo(container);
+
+      await renderer.goTo(3);
+      expect(renderer.getCurrentLocation()).toBe("3");
+
+      // Bumping fontSize triggers rerenderAllPages (scale change).
+      // Without the page restore, this lands the user back on page 1.
+      renderer.applySettings({
+        ...DEFAULT_READER_SETTINGS,
+        fontSize: DEFAULT_READER_SETTINGS.fontSize + 4,
+      });
+      // applySettings -> rerenderAllPages is async internally;
+      // wait a microtask cycle for the rebuild to settle.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(renderer.getCurrentLocation()).toBe("3");
+    });
   });
 
   describe("captureAnchor() / goToAnchor()", () => {

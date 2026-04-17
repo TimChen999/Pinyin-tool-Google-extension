@@ -519,6 +519,68 @@ describe("EpubRenderer", () => {
     });
   });
 
+  describe("getScrollContainerTop() / setScrollContainerTop()", () => {
+    function mountEpubContainer(host: HTMLElement, scrollTop = 0): HTMLElement {
+      const inner = document.createElement("div");
+      inner.className = "epub-container";
+      inner.style.cssText = "height:200px;overflow:auto";
+      const tall = document.createElement("div");
+      tall.style.height = "1000px";
+      inner.appendChild(tall);
+      host.appendChild(inner);
+      inner.scrollTop = scrollTop;
+      return inner;
+    }
+
+    it("returns null before renderTo runs", () => {
+      expect(renderer.getScrollContainerTop()).toBeNull();
+    });
+
+    it("returns null in paginated mode even with a container", async () => {
+      renderer.setInitialFlow("paginated");
+      const file = createMockFile("test.epub");
+      await renderer.load(file);
+      const container = document.createElement("div");
+      mountEpubContainer(container, 250);
+      await renderer.renderTo(container);
+      expect(renderer.getScrollContainerTop()).toBeNull();
+    });
+
+    it("reports the .epub-container scrollTop in scrolled-doc mode", async () => {
+      const file = createMockFile("test.epub");
+      await renderer.load(file);
+      const container = document.createElement("div");
+      const inner = mountEpubContainer(container, 250);
+      await renderer.renderTo(container);
+
+      expect(renderer.getScrollContainerTop()).toBe(250);
+      void inner;
+    });
+
+    it("setScrollContainerTop writes the .epub-container scrollTop", async () => {
+      const file = createMockFile("test.epub");
+      await renderer.load(file);
+      const container = document.createElement("div");
+      const inner = mountEpubContainer(container, 0);
+      await renderer.renderTo(container);
+
+      renderer.setScrollContainerTop(450);
+      expect(inner.scrollTop).toBe(450);
+    });
+
+    it("setScrollContainerTop is a no-op in paginated mode", async () => {
+      renderer.setInitialFlow("paginated");
+      const file = createMockFile("test.epub");
+      await renderer.load(file);
+      const container = document.createElement("div");
+      const inner = mountEpubContainer(container, 100);
+      await renderer.renderTo(container);
+
+      renderer.setScrollContainerTop(999);
+      expect(inner.scrollTop).toBe(100);
+    });
+  });
+
   describe("captureAnchor() / goToAnchor()", () => {
     it("returns null when no selected event has fired yet", async () => {
       await loadAndRender();

@@ -383,6 +383,11 @@ export class PdfRenderer implements FormatRenderer {
 
   private async rerenderAllPages(): Promise<void> {
     if (!this.container) return;
+    // Capture the page the user was reading; the rebuild below clears
+    // the container and otherwise lands the viewport at the top of the
+    // PDF (page 1), which is the most user-visible regression from a
+    // font-size / zoom change.
+    const restorePage = this.currentPage;
     const previous = this.renderedPages;
     const newRendered: PdfRenderedPage[] = [];
     this.container.innerHTML = "";
@@ -394,6 +399,9 @@ export class PdfRenderer implements FormatRenderer {
     this.renderedPages = newRendered;
     void previous;
     this.attachPageObserver();
+    if (restorePage > 1 && restorePage <= this.numPages) {
+      await this.goTo(restorePage);
+    }
   }
 
   private applyThemeClass(): void {
