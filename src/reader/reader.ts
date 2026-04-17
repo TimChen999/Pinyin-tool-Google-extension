@@ -1181,6 +1181,16 @@ export async function initReader(): Promise<void> {
 
   els.bookmarkToggle.addEventListener("click", (e) => {
     e.stopPropagation();
+    // If the bookmark sidebar is already showing, the icon acts as a
+    // single close affordance -- mirrors how the hamburger toggles
+    // the TOC sidebar directly. Re-opening the popover here would be
+    // redundant since its only useful action ("Show all bookmarks")
+    // would just close the sidebar the user is already looking at.
+    if (isBookmarkSidebarOpen(els)) {
+      showOnlySidebar(els, "none");
+      closeBookmarkMenu(els);
+      return;
+    }
     if (els.bookmarkMenu.classList.contains("hidden")) {
       openBookmarkMenu(els);
     } else {
@@ -1264,6 +1274,11 @@ export async function initReader(): Promise<void> {
       // dismiss key for both the overlay and any toolbar popover.
       if (!els.bookmarkMenu.classList.contains("hidden")) {
         closeBookmarkMenu(els);
+      }
+      // ...and either sidebar. TOC included for symmetry so keyboard
+      // users don't have to think about which panel is open.
+      if (isBookmarkSidebarOpen(els) || isTocSidebarOpen(els)) {
+        showOnlySidebar(els, "none");
       }
     }
   });
