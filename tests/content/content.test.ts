@@ -227,6 +227,27 @@ describe("content script", () => {
 
       expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
     });
+
+    // Regression: clicking the overlay close button (or any element inside
+    // the Shadow DOM host) used to re-trigger the document mouseup handler,
+    // which re-ran processSelection on the still-alive page selection and
+    // re-opened the popup immediately after dismissal.
+    it("ignores mouseup when target is inside the overlay host", () => {
+      const host = document.createElement("div");
+      host.id = "hg-extension-root";
+      const child = document.createElement("button");
+      host.appendChild(child);
+      document.body.appendChild(host);
+
+      vi.spyOn(window, "getSelection").mockReturnValue(
+        fakeSelection("你好世界"),
+      );
+
+      child.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      vi.advanceTimersByTime(DEBOUNCE_MS + 50);
+
+      expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+    });
   });
 
   // ─── overlay lifecycle ────────────────────────────────────────

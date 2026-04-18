@@ -211,7 +211,7 @@ function processSelection(text: string, rect: DOMRect, context: string): void {
  *
  * (IMPLEMENTATION_GUIDE.md Step 7a.1)
  */
-const handleMouseup = debounce(() => {
+const debouncedSelectionScan = debounce(() => {
   if (!cachedOverlayEnabled) return;
 
   const selection = window.getSelection();
@@ -227,7 +227,18 @@ const handleMouseup = debounce(() => {
   processSelection(text, rect, context);
 }, DEBOUNCE_MS);
 
-document.addEventListener("mouseup", handleMouseup);
+// Skip mouseups that originate inside our overlay host. Without this
+// gate, clicking the overlay's close button (or any control inside it)
+// fires a mouseup that bubbles to document; the page selection from
+// the original lookup is still alive (Shadow DOM clicks don't clear
+// it), so processSelection would re-fire and the popup would pop
+// right back up. Mirrors the host-contains check used by the
+// click-outside dismisser below.
+document.addEventListener("mouseup", (e: MouseEvent) => {
+  const host = document.getElementById("hg-extension-root");
+  if (host?.contains(e.target as Node)) return;
+  debouncedSelectionScan();
+});
 
 // ─── Incoming message listener ─────────────────────────────────────
 
