@@ -151,6 +151,27 @@ describe("PdfRenderer", () => {
       expect(meta.toc.length).toBe(2);
       expect(meta.toc[0].label).toBe("Chapter 1");
     });
+
+    it("resolves outline entries with explicit-array destinations", async () => {
+      // A pdf.js explicit destination's first element is either a
+      // page Ref ({num, gen}) or a 0-based integer page index. Many
+      // PDFs (notably those produced by ebook conversion tools)
+      // emit the integer form. Regression: the Ref path used to
+      // call getPageIndex unconditionally, which throws "Invalid
+      // pageIndex request" for integer indices, so every TOC href
+      // came back empty and clicks were silently ignored.
+      const outline = [
+        { title: "By Ref", dest: [{ num: 5, gen: 0 }, { name: "XYZ" }, 0, 0, null], items: [] },
+        { title: "By Index", dest: [3, { name: "Fit" }], items: [] },
+      ];
+      const doc = buildMockDoc(10, { outline });
+      doc.getPageIndex = vi.fn().mockResolvedValue(1);
+      mockGetDocument.mockReturnValueOnce({ promise: Promise.resolve(doc) });
+      const meta = await renderer.load(makeFile("a.pdf"));
+      expect(meta.toc).toHaveLength(2);
+      expect(meta.toc[0].href).toBe("2"); // Ref resolved via getPageIndex (0+1) -> 2 (1+1)
+      expect(meta.toc[1].href).toBe("4"); // integer 3 is 0-based -> 4
+    });
   });
 
   describe("renderTo()", () => {
@@ -230,6 +251,43 @@ describe("PdfRenderer", () => {
     it("prev returns false at the first page", async () => {
       await renderer.goTo(1);
       expect(await renderer.prev()).toBe(false);
+    });
+
+    // The IntersectionObserver path (jsdom has none, browsers do)
+    // is gated on bestPage !== this.currentPage. goTo() assigns
+    // currentPage synchronously, so without an explicit notification
+    // the observer's post-scroll entries find the gate already
+    // closed and the relocated callback never fires -- TOC clicks
+    // would scroll the content but leave the footer page indicator
+    // stuck on the previous page.
+    it("notifies onRelocated when goTo navigates to a new page", async () => {
+      const cb = vi.fn();
+      renderer.onRelocated(cb);
+      await renderer.goTo(3);
+      expect(cb).toHaveBeenCalledTimes(1);
+      expect(cb).toHaveBeenCalledWith(2); // 0-based page index
+    });
+
+    it("does not notify onRelocated when goTo lands on the current page", async () => {
+      await renderer.goTo(2);
+      const cb = vi.fn();
+      renderer.onRelocated(cb);
+      await renderer.goTo(2);
+      expect(cb).not.toHaveBeenCalled();
+    });
+
+    // The reader's prev/next button handlers manually adjust
+    // metadata.currentChapter after the awaited renderer call
+    // returns. Firing the relocated callback here too would advance
+    // the footer indicator twice, so the user would see it skip
+    // pages even though the content scrolled by one.
+    it("does not notify onRelocated for next() and prev()", async () => {
+      await renderer.goTo(2);
+      const cb = vi.fn();
+      renderer.onRelocated(cb);
+      await renderer.next();
+      await renderer.prev();
+      expect(cb).not.toHaveBeenCalled();
     });
   });
 
