@@ -63,6 +63,34 @@ async function loadSettings(): Promise<ExtensionSettings> {
   return { ...DEFAULT_SETTINGS, ...stored };
 }
 
+// ─── Theme ──────────────────────────────────────────────────────────
+
+/**
+ * Resolve the user's theme preference to a concrete CSS state. Mirrors
+ * the helper in src/library/library.ts so the popup, library, hub, and
+ * reader all read the same `theme` storage key the same way: "auto"
+ * collapses to "light" or "dark" via prefers-color-scheme, and explicit
+ * "light"/"dark" pass through unchanged. The reader's "sepia" option
+ * is not a popup choice but is accepted as a pass-through so a user
+ * who set sepia from the reader doesn't crash the popup.
+ */
+function resolveTheme(theme: string): "light" | "dark" | "sepia" {
+  if (theme === "light" || theme === "dark" || theme === "sepia") return theme;
+  const prefersDark =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches;
+  return prefersDark ? "dark" : "light";
+}
+
+/**
+ * Writes the resolved theme onto body[data-theme] so popup.css's
+ * theme selectors apply. Used on init, after Save, and whenever the
+ * user changes the Theme dropdown so the preview is immediate.
+ */
+function applyTheme(theme: string): void {
+  document.body.setAttribute("data-theme", resolveTheme(theme));
+}
+
 // ─── Ollama Model Fetching ───────────────────────────────────────────
 
 /**
@@ -422,6 +450,7 @@ export async function initPopup(): Promise<void> {
   els.fontSize.value = String(settings.fontSize);
   els.fontSizeLabel.textContent = String(settings.fontSize);
   els.theme.value = settings.theme;
+  applyTheme(settings.theme);
   els.llmEnabled.checked = settings.llmEnabled;
   els.ttsEnabled.checked = settings.ttsEnabled;
   els.overlayEnabled.checked = settings.overlayEnabled;
@@ -484,6 +513,17 @@ export async function initPopup(): Promise<void> {
     els.fontSizeLabel.textContent = els.fontSize.value;
   });
 
+  els.theme.addEventListener("change", () => applyTheme(els.theme.value));
+
+  // When the user has "Auto" selected, follow live OS theme flips
+  // while the popup is open. The listener is harmless under explicit
+  // "light"/"dark" because resolveTheme ignores the OS in those cases.
+  if (typeof window.matchMedia === "function") {
+    window
+      .matchMedia("(prefers-color-scheme: dark)")
+      .addEventListener("change", () => applyTheme(els.theme.value));
+  }
+
   // ─── AI Translations toggle + warning + info popover ─────────
 
   els.llmEnabled.addEventListener("change", () => applyLlmToggleState(els));
@@ -524,6 +564,7 @@ export async function initPopup(): Promise<void> {
 
     const values = readFormValues(els);
     await chrome.storage.sync.set(values);
+    applyTheme(values.theme);
     showStatus(els.status, "Settings saved.", "success");
   });
 

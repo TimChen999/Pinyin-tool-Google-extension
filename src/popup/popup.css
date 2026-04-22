@@ -1,6 +1,9 @@
 /*
  * Popup settings panel -- fixed 320px width, clean form layout.
- * Dark mode via @media (prefers-color-scheme: dark).
+ * Dark mode via body[data-theme="dark"], driven by the user's Theme
+ * setting (Auto/Light/Dark). popup.ts resolves "auto" against
+ * prefers-color-scheme before writing data-theme so this stylesheet
+ * never has to consult the OS itself.
  * SPEC.md Section 2.5, IMPLEMENTATION_GUIDE.md Step 8c.
  */
 
@@ -562,226 +565,228 @@ hr.section-divider {
 }
 
 /* ─── Dark mode ──────────────────────────────────────────────── */
+/* popup.ts sets body[data-theme="dark"] when the user picks Dark
+   explicitly, or when Auto resolves to dark via prefers-color-scheme.
+   That single attribute drives every dark-mode override below, so
+   this stylesheet stays OS-agnostic. */
 
-@media (prefers-color-scheme: dark) {
-  body {
-    background: #1f2937;
-    color: #f3f4f6;
-  }
+body[data-theme="dark"] {
+  background: #1f2937;
+  color: #f3f4f6;
+}
 
-  h1 {
-    border-bottom-color: #374151;
-  }
+body[data-theme="dark"] h1 {
+  border-bottom-color: #374151;
+}
 
-  label {
-    color: #d1d5db;
-  }
+body[data-theme="dark"] label {
+  color: #d1d5db;
+}
 
-  input[type="text"],
-  input[type="password"],
-  select {
-    background: #374151;
-    color: #f3f4f6;
-    border-color: #4b5563;
-  }
+body[data-theme="dark"] input[type="text"],
+body[data-theme="dark"] input[type="password"],
+body[data-theme="dark"] select {
+  background: #374151;
+  color: #f3f4f6;
+  border-color: #4b5563;
+}
 
-  input[type="text"]:focus,
-  input[type="password"]:focus,
-  select:focus {
-    border-color: #60a5fa;
-    box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
-  }
+body[data-theme="dark"] input[type="text"]:focus,
+body[data-theme="dark"] input[type="password"]:focus,
+body[data-theme="dark"] select:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+}
 
-  .input-row button {
-    background: #374151;
-    border-color: #4b5563;
-    color: #d1d5db;
-  }
+body[data-theme="dark"] .input-row button {
+  background: #374151;
+  border-color: #4b5563;
+  color: #d1d5db;
+}
 
-  .input-row button:hover {
-    background: #4b5563;
-  }
+body[data-theme="dark"] .input-row button:hover {
+  background: #4b5563;
+}
 
-  .example {
-    color: #9ca3af;
-  }
+body[data-theme="dark"] .example {
+  color: #9ca3af;
+}
 
-  #ocr-btn {
-    border-color: #60a5fa;
-    color: #60a5fa;
-  }
+body[data-theme="dark"] #ocr-btn {
+  border-color: #60a5fa;
+  color: #60a5fa;
+}
 
-  #ocr-btn:hover {
-    background: rgba(96, 165, 250, 0.12);
-  }
+body[data-theme="dark"] #ocr-btn:hover {
+  background: rgba(96, 165, 250, 0.12);
+}
 
-  #library-btn {
-    background: #2563eb;
-  }
+body[data-theme="dark"] #library-btn {
+  background: #2563eb;
+}
 
-  #library-btn:hover {
-    background: #3b82f6;
-  }
+body[data-theme="dark"] #library-btn:hover {
+  background: #3b82f6;
+}
 
-  #save-btn {
-    background: #2563eb;
-  }
+body[data-theme="dark"] #save-btn {
+  background: #2563eb;
+}
 
-  #save-btn:hover {
-    background: #3b82f6;
-  }
+body[data-theme="dark"] #save-btn:hover {
+  background: #3b82f6;
+}
 
-  #status.success {
-    background: #064e3b;
-    color: #6ee7b7;
-  }
+body[data-theme="dark"] #status.success {
+  background: #064e3b;
+  color: #6ee7b7;
+}
 
-  #status.error {
-    background: #7f1d1d;
-    color: #fca5a5;
-  }
+body[data-theme="dark"] #status.error {
+  background: #7f1d1d;
+  color: #fca5a5;
+}
 
-  .tab-bar {
-    border-bottom-color: #374151;
-  }
+body[data-theme="dark"] .tab-bar {
+  border-bottom-color: #374151;
+}
 
-  .tab-btn {
-    color: #9ca3af;
-  }
+body[data-theme="dark"] .tab-btn {
+  color: #9ca3af;
+}
 
-  .tab-btn.active {
-    color: #60a5fa;
-    border-bottom-color: #60a5fa;
-  }
+body[data-theme="dark"] .tab-btn.active {
+  color: #60a5fa;
+  border-bottom-color: #60a5fa;
+}
 
-  .tab-btn:hover:not(.active) {
-    color: #d1d5db;
-  }
+body[data-theme="dark"] .tab-btn:hover:not(.active) {
+  color: #d1d5db;
+}
 
-  .vocab-controls button {
-    background: #374151;
-    border-color: #4b5563;
-    color: #d1d5db;
-  }
+body[data-theme="dark"] .vocab-controls button {
+  background: #374151;
+  border-color: #4b5563;
+  color: #d1d5db;
+}
 
-  .vocab-controls button:hover {
-    background: #7f1d1d;
-    border-color: #fca5a5;
-    color: #fca5a5;
-  }
+body[data-theme="dark"] .vocab-controls button:hover {
+  background: #7f1d1d;
+  border-color: #fca5a5;
+  color: #fca5a5;
+}
 
-  .vocab-row {
-    border-bottom-color: #374151;
-  }
+body[data-theme="dark"] .vocab-row {
+  border-bottom-color: #374151;
+}
 
-  .vocab-pinyin {
-    color: #9ca3af;
-  }
+body[data-theme="dark"] .vocab-pinyin {
+  color: #9ca3af;
+}
 
-  .vocab-def {
-    color: #d1d5db;
-  }
+body[data-theme="dark"] .vocab-def {
+  color: #d1d5db;
+}
 
-  .vocab-empty {
-    color: #6b7280;
-  }
+body[data-theme="dark"] .vocab-empty {
+  color: #6b7280;
+}
 
-  .vocab-row:hover {
-    background: #374151;
-  }
+body[data-theme="dark"] .vocab-row:hover {
+  background: #374151;
+}
 
-  .vocab-card {
-    background: #1f2937;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
-  }
+body[data-theme="dark"] .vocab-card {
+  background: #1f2937;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+}
 
-  .vocab-card-close {
-    color: #6b7280;
-  }
+body[data-theme="dark"] .vocab-card-close {
+  color: #6b7280;
+}
 
-  .vocab-card-close:hover {
-    color: #d1d5db;
-    background: #374151;
-  }
+body[data-theme="dark"] .vocab-card-close:hover {
+  color: #d1d5db;
+  background: #374151;
+}
 
-  .vocab-card-chars {
-    color: #f3f4f6;
-  }
+body[data-theme="dark"] .vocab-card-chars {
+  color: #f3f4f6;
+}
 
-  .vocab-card-pinyin {
-    color: #9ca3af;
-  }
+body[data-theme="dark"] .vocab-card-pinyin {
+  color: #9ca3af;
+}
 
-  .vocab-card-def {
-    color: #d1d5db;
-  }
+body[data-theme="dark"] .vocab-card-def {
+  color: #d1d5db;
+}
 
-  .vocab-card-meta {
-    color: #6b7280;
-  }
+body[data-theme="dark"] .vocab-card-meta {
+  color: #6b7280;
+}
 
-  .vocab-card-delete {
-    background: #7f1d1d;
-    border-color: #fca5a5;
-    color: #fca5a5;
-  }
+body[data-theme="dark"] .vocab-card-delete {
+  background: #7f1d1d;
+  border-color: #fca5a5;
+  color: #fca5a5;
+}
 
-  .vocab-card-delete:hover {
-    background: #991b1b;
-    border-color: #f87171;
-  }
+body[data-theme="dark"] .vocab-card-delete:hover {
+  background: #991b1b;
+  border-color: #f87171;
+}
 
-  /* ─── AI Translations section (dark) ─────────────────────── */
+/* ─── AI Translations section (dark) ─────────────────────── */
 
-  .ai-section {
-    background: #111827;
-    border-color: #374151;
-  }
+body[data-theme="dark"] .ai-section {
+  background: #111827;
+  border-color: #374151;
+}
 
-  .switch-label {
-    color: #f3f4f6;
-  }
+body[data-theme="dark"] .switch-label {
+  color: #f3f4f6;
+}
 
-  .switch-track {
-    background: #4b5563;
-  }
+body[data-theme="dark"] .switch-track {
+  background: #4b5563;
+}
 
-  .switch-input:checked + .switch-track {
-    background: #2563eb;
-  }
+body[data-theme="dark"] .switch-input:checked + .switch-track {
+  background: #2563eb;
+}
 
-  .switch-input:focus-visible + .switch-track {
-    box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.45);
-  }
+body[data-theme="dark"] .switch-input:focus-visible + .switch-track {
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.45);
+}
 
-  .info-btn {
-    border-color: #6b7280;
-    color: #9ca3af;
-  }
+body[data-theme="dark"] .info-btn {
+  border-color: #6b7280;
+  color: #9ca3af;
+}
 
-  .info-btn:hover {
-    background: #374151;
-    color: #f3f4f6;
-    border-color: #9ca3af;
-  }
+body[data-theme="dark"] .info-btn:hover {
+  background: #374151;
+  color: #f3f4f6;
+  border-color: #9ca3af;
+}
 
-  .info-popover {
-    background: #1f2937;
-    border-color: #4b5563;
-    color: #d1d5db;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  }
+body[data-theme="dark"] .info-popover {
+  background: #1f2937;
+  border-color: #4b5563;
+  color: #d1d5db;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
 
-  #ai-config-fields {
-    border-top-color: #374151;
-  }
+body[data-theme="dark"] #ai-config-fields {
+  border-top-color: #374151;
+}
 
-  .inline-warning {
-    background: #7f1d1d;
-    color: #fca5a5;
-  }
+body[data-theme="dark"] .inline-warning {
+  background: #7f1d1d;
+  color: #fca5a5;
+}
 
-  hr.section-divider {
-    border-top-color: #374151;
-  }
+body[data-theme="dark"] hr.section-divider {
+  border-top-color: #374151;
 }

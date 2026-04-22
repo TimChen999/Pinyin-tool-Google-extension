@@ -763,4 +763,86 @@ describe("popup settings", () => {
       expect(el.aiInfoPopover.classList.contains("hidden")).toBe(true);
     });
   });
+
+  // ─── Theme application ─────────────────────────────────────────
+  //
+  // The popup body now carries data-theme so popup.css's
+  // `body[data-theme="dark"]` rules apply when the user picks Dark
+  // or when Auto resolves to dark via prefers-color-scheme. These
+  // tests guard against regressing back to a popup that ignores
+  // the user's Theme setting.
+
+  describe("theme application", () => {
+    it("writes data-theme=light on body when stored theme is 'light'", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ theme: "light" }),
+      );
+
+      await loadPopup();
+
+      expect(document.body.getAttribute("data-theme")).toBe("light");
+    });
+
+    it("writes data-theme=dark on body when stored theme is 'dark'", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ theme: "dark" }),
+      );
+
+      await loadPopup();
+
+      expect(document.body.getAttribute("data-theme")).toBe("dark");
+    });
+
+    it("resolves auto to light when matchMedia is unavailable", async () => {
+      // jsdom omits matchMedia by default; popup.ts must fall back
+      // to "light" without throwing.
+      await loadPopup();
+
+      expect(document.body.getAttribute("data-theme")).toBe("light");
+    });
+
+    it("resolves auto to dark when prefers-color-scheme reports dark", async () => {
+      const matchMediaSpy = vi.fn(() => ({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })) as unknown as typeof window.matchMedia;
+      vi.stubGlobal("matchMedia", matchMediaSpy);
+
+      await loadPopup();
+
+      expect(document.body.getAttribute("data-theme")).toBe("dark");
+    });
+
+    it("updates body[data-theme] live when the user changes the dropdown", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ theme: "light" }),
+      );
+
+      await loadPopup();
+      expect(document.body.getAttribute("data-theme")).toBe("light");
+
+      el.theme.value = "dark";
+      el.theme.dispatchEvent(new Event("change"));
+
+      expect(document.body.getAttribute("data-theme")).toBe("dark");
+    });
+
+    it("re-applies theme after Save so the popup matches the saved value", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ theme: "light", apiKey: "sk-valid-test-key-123" }),
+      );
+
+      await loadPopup();
+      expect(document.body.getAttribute("data-theme")).toBe("light");
+
+      el.theme.value = "dark";
+      el.saveBtn.click();
+
+      await vi.waitFor(() =>
+        expect(chrome.storage.sync.set).toHaveBeenCalled(),
+      );
+      expect(document.body.getAttribute("data-theme")).toBe("dark");
+    });
+  });
 });
