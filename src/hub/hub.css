@@ -627,6 +627,39 @@ body {
   background: #f3f4f6;
 }
 
+/* ─── Scrollbars + native controls ───────────────────────────── */
+/* The tab content wrapper (.hub-tab-content) is the only scroll
+   container in the hub shell. accent-color paints native checkboxes
+   and radios used in vocab/flashcards UIs so they match the theme
+   instead of the OS default. */
+
+.hub-tab-content {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+
+body {
+  accent-color: #3b82f6;
+}
+
+.hub-tab-content::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.hub-tab-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hub-tab-content::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+
+.hub-tab-content::-webkit-scrollbar-thumb:hover {
+  background: #3b82f6;
+}
+
 /* ─── Dark Mode ───────────────────────────────────────────────── */
 
 body[data-theme="dark"] {
@@ -897,6 +930,22 @@ body[data-theme="dark"] .fc-close-btn:hover {
   background: #374151;
 }
 
+body[data-theme="dark"] {
+  accent-color: #60a5fa;
+}
+
+body[data-theme="dark"] .hub-tab-content {
+  scrollbar-color: #4b5563 transparent;
+}
+
+body[data-theme="dark"] .hub-tab-content::-webkit-scrollbar-thumb {
+  background: #4b5563;
+}
+
+body[data-theme="dark"] .hub-tab-content::-webkit-scrollbar-thumb:hover {
+  background: #60a5fa;
+}
+
 /* ─── Auto theme (follows OS) ─────────────────────────────────── */
 
 @media (prefers-color-scheme: dark) {
@@ -976,6 +1025,11 @@ body[data-theme="dark"] .fc-close-btn:hover {
   body[data-theme="auto"] .fc-available { color: #6b7280; }
   body[data-theme="auto"] .fc-close-btn { color: #6b7280; }
   body[data-theme="auto"] .fc-close-btn:hover { color: #d1d5db; background: #374151; }
+
+  body[data-theme="auto"] { accent-color: #60a5fa; }
+  body[data-theme="auto"] .hub-tab-content { scrollbar-color: #4b5563 transparent; }
+  body[data-theme="auto"] .hub-tab-content::-webkit-scrollbar-thumb { background: #4b5563; }
+  body[data-theme="auto"] .hub-tab-content::-webkit-scrollbar-thumb:hover { background: #60a5fa; }
 }
 
 /* ─── Sepia mode ─────────────────────────────────────────────────── */
@@ -1150,3 +1204,19 @@ body[data-theme="sepia"] .fc-prompt { color: #8b7355; }
 body[data-theme="sepia"] .fc-available { color: #8b7355; }
 body[data-theme="sepia"] .fc-close-btn { color: #8b7355; }
 body[data-theme="sepia"] .fc-close-btn:hover { color: #5c4b37; background: #ede4cf; }
+
+body[data-theme="sepia"] {
+  accent-color: #b8860b;
+}
+
+body[data-theme="sepia"] .hub-tab-content {
+  scrollbar-color: #d4c8ab transparent;
+}
+
+body[data-theme="sepia"] .hub-tab-content::-webkit-scrollbar-thumb {
+  background: #d4c8ab;
+}
+
+body[data-theme="sepia"] .hub-tab-content::-webkit-scrollbar-thumb:hover {
+  background: #b8860b;
+}

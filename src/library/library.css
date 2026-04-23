@@ -122,6 +122,39 @@ body {
   overflow-y: auto;
 }
 
+/* ─── Scrollbars (vocab + flashcards panes) ──────────────────── */
+/* hub.css already themes .hub-tab-content and sets accent-color on
+   body, but the library wraps those in extra scroll panes whose own
+   bars need theming too. */
+
+#library-pane-vocab,
+#library-pane-flashcards {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+
+#library-pane-vocab::-webkit-scrollbar,
+#library-pane-flashcards::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+#library-pane-vocab::-webkit-scrollbar-track,
+#library-pane-flashcards::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#library-pane-vocab::-webkit-scrollbar-thumb,
+#library-pane-flashcards::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+
+#library-pane-vocab::-webkit-scrollbar-thumb:hover,
+#library-pane-flashcards::-webkit-scrollbar-thumb:hover {
+  background: #3b82f6;
+}
+
 /* ─── Dark mode ──────────────────────────────────────────────── */
 
 body[data-theme="dark"] {
@@ -150,6 +183,21 @@ body[data-theme="dark"] .library-tab.active {
 body[data-theme="dark"] .library-tab:hover:not(.active) {
   background: #374151;
   color: #d1d5db;
+}
+
+body[data-theme="dark"] #library-pane-vocab,
+body[data-theme="dark"] #library-pane-flashcards {
+  scrollbar-color: #4b5563 transparent;
+}
+
+body[data-theme="dark"] #library-pane-vocab::-webkit-scrollbar-thumb,
+body[data-theme="dark"] #library-pane-flashcards::-webkit-scrollbar-thumb {
+  background: #4b5563;
+}
+
+body[data-theme="dark"] #library-pane-vocab::-webkit-scrollbar-thumb:hover,
+body[data-theme="dark"] #library-pane-flashcards::-webkit-scrollbar-thumb:hover {
+  background: #60a5fa;
 }
 
 /* When the reader's auto theme resolves to "dark", #library-pane-
@@ -186,6 +234,21 @@ body[data-theme="sepia"] .library-tab:hover:not(.active) {
   color: #5c4b37;
 }
 
+body[data-theme="sepia"] #library-pane-vocab,
+body[data-theme="sepia"] #library-pane-flashcards {
+  scrollbar-color: #d4c8ab transparent;
+}
+
+body[data-theme="sepia"] #library-pane-vocab::-webkit-scrollbar-thumb,
+body[data-theme="sepia"] #library-pane-flashcards::-webkit-scrollbar-thumb {
+  background: #d4c8ab;
+}
+
+body[data-theme="sepia"] #library-pane-vocab::-webkit-scrollbar-thumb:hover,
+body[data-theme="sepia"] #library-pane-flashcards::-webkit-scrollbar-thumb:hover {
+  background: #b8860b;
+}
+
 /* ─── Auto theme (follows OS) ────────────────────────────────── */
 
 @media (prefers-color-scheme: dark) {
@@ -215,6 +278,21 @@ body[data-theme="sepia"] .library-tab:hover:not(.active) {
   body[data-theme="auto"] .library-tab:hover:not(.active) {
     background: #374151;
     color: #d1d5db;
+  }
+
+  body[data-theme="auto"] #library-pane-vocab,
+  body[data-theme="auto"] #library-pane-flashcards {
+    scrollbar-color: #4b5563 transparent;
+  }
+
+  body[data-theme="auto"] #library-pane-vocab::-webkit-scrollbar-thumb,
+  body[data-theme="auto"] #library-pane-flashcards::-webkit-scrollbar-thumb {
+    background: #4b5563;
+  }
+
+  body[data-theme="auto"] #library-pane-vocab::-webkit-scrollbar-thumb:hover,
+  body[data-theme="auto"] #library-pane-flashcards::-webkit-scrollbar-thumb:hover {
+    background: #60a5fa;
   }
 }
 

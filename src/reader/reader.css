@@ -34,7 +34,7 @@ body[data-theme="sepia"] {
   --sidebar-bg: #efe6d0; --toolbar-bg: #f4ecd8;
 }
 
-body { background: var(--bg); color: var(--text); }
+body { background: var(--bg); color: var(--text); accent-color: var(--accent); }
 
 /* ── Toolbar ────────────────────────────────────────────────── */
 
@@ -526,33 +526,38 @@ body { background: var(--bg); color: var(--text); }
 
 .toc-sidebar,
 .bookmark-sidebar,
-.reader-main {
+.reader-main,
+.settings-inner {
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }
 
 .toc-sidebar::-webkit-scrollbar,
 .bookmark-sidebar::-webkit-scrollbar,
-.reader-main::-webkit-scrollbar {
+.reader-main::-webkit-scrollbar,
+.settings-inner::-webkit-scrollbar {
   width: 6px;
 }
 
 .toc-sidebar::-webkit-scrollbar-track,
 .bookmark-sidebar::-webkit-scrollbar-track,
-.reader-main::-webkit-scrollbar-track {
+.reader-main::-webkit-scrollbar-track,
+.settings-inner::-webkit-scrollbar-track {
   background: transparent;
 }
 
 .toc-sidebar::-webkit-scrollbar-thumb,
 .bookmark-sidebar::-webkit-scrollbar-thumb,
-.reader-main::-webkit-scrollbar-thumb {
+.reader-main::-webkit-scrollbar-thumb,
+.settings-inner::-webkit-scrollbar-thumb {
   background: var(--border);
   border-radius: 3px;
 }
 
 .toc-sidebar::-webkit-scrollbar-thumb:hover,
 .bookmark-sidebar::-webkit-scrollbar-thumb:hover,
-.reader-main::-webkit-scrollbar-thumb:hover {
+.reader-main::-webkit-scrollbar-thumb:hover,
+.settings-inner::-webkit-scrollbar-thumb:hover {
   background: var(--accent);
 }
 

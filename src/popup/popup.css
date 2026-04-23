@@ -142,6 +142,44 @@ input[type="range"] {
   display: none !important;
 }
 
+/* ─── Scrollbars + native controls ───────────────────────────── */
+/* Theme the popup body scroll (overflow past Chrome's max popup
+   height) and the recents list. accent-color paints the Font Size
+   range slider, checkboxes, and radios so they stop showing the
+   Windows-blue default against sepia/dark backgrounds. */
+
+body,
+.vocab-list {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+
+body {
+  accent-color: #3b82f6;
+}
+
+body::-webkit-scrollbar,
+.vocab-list::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+body::-webkit-scrollbar-track,
+.vocab-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+body::-webkit-scrollbar-thumb,
+.vocab-list::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+body::-webkit-scrollbar-thumb:hover,
+.vocab-list::-webkit-scrollbar-thumb:hover {
+  background: #3b82f6;
+}
+
 /* ─── AI Translations section card ───────────────────────────── */
 
 .ai-section {
@@ -791,6 +829,25 @@ body[data-theme="dark"] hr.section-divider {
   border-top-color: #374151;
 }
 
+body[data-theme="dark"] {
+  scrollbar-color: #4b5563 transparent;
+  accent-color: #60a5fa;
+}
+
+body[data-theme="dark"] .vocab-list {
+  scrollbar-color: #4b5563 transparent;
+}
+
+body[data-theme="dark"]::-webkit-scrollbar-thumb,
+body[data-theme="dark"] .vocab-list::-webkit-scrollbar-thumb {
+  background: #4b5563;
+}
+
+body[data-theme="dark"]::-webkit-scrollbar-thumb:hover,
+body[data-theme="dark"] .vocab-list::-webkit-scrollbar-thumb:hover {
+  background: #60a5fa;
+}
+
 /* ─── Sepia mode ─────────────────────────────────────────────────── */
 /* Cream/brown palette borrowed from reader.css so the popup matches
    the reader and library shell when the user picks Sepia. Same
@@ -1010,4 +1067,23 @@ body[data-theme="sepia"] .inline-warning {
 
 body[data-theme="sepia"] hr.section-divider {
   border-top-color: #d4c8ab;
+}
+
+body[data-theme="sepia"] {
+  scrollbar-color: #d4c8ab transparent;
+  accent-color: #b8860b;
+}
+
+body[data-theme="sepia"] .vocab-list {
+  scrollbar-color: #d4c8ab transparent;
+}
+
+body[data-theme="sepia"]::-webkit-scrollbar-thumb,
+body[data-theme="sepia"] .vocab-list::-webkit-scrollbar-thumb {
+  background: #d4c8ab;
+}
+
+body[data-theme="sepia"]::-webkit-scrollbar-thumb:hover,
+body[data-theme="sepia"] .vocab-list::-webkit-scrollbar-thumb:hover {
+  background: #b8860b;
 }
