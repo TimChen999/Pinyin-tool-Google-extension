@@ -36,6 +36,11 @@ import {
   LLM_TEMPERATURE,
 } from "../shared/constants";
 import type { ExtensionSettings, LLMConfig } from "../shared/types";
+import {
+  partitionDropdownTheme,
+  resolveEffectiveTheme,
+  THEME_MIGRATION_FLAG,
+} from "../shared/theme";
 import { saveFileHandle, getFileHandle } from "./file-handle-store";
 import { getRendererForFile, getSupportedExtensions } from "./renderers/renderer-registry";
 import { EpubRenderer } from "./renderers/epub-renderer";
@@ -69,6 +74,25 @@ let currentRequestId = 0;
 let autosaveTimer: ReturnType<typeof setInterval> | null = null;
 let debounceSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let readerSettings: ReaderSettings = { ...DEFAULT_READER_SETTINGS };
+
+/**
+ * In-memory mirror of the shared ExtensionSettings.theme so the
+ * settings panel can surface the right value for the Theme dropdown
+ * (which is the union of "sepia" and the shared light/dark/auto)
+ * without re-reading storage on every interaction. Initialized in
+ * initReader() and kept in sync via the chrome.storage.onChanged
+ * listener so popup-side theme changes propagate live.
+ */
+let currentSharedTheme: ExtensionSettings["theme"] = DEFAULT_SETTINGS.theme;
+
+/**
+ * Module-level chrome.storage.onChanged handler reference so we can
+ * verify-once / clean up if needed and so re-initReader() (called
+ * after hot-reload in dev) doesn't stack duplicate listeners.
+ */
+let storageChangeListener:
+  | ((changes: Record<string, chrome.storage.StorageChange>, area: string) => void)
+  | null = null;
 
 /**
  * Word-precise anchor for the most recent successful selection. Updated
@@ -277,6 +301,54 @@ async function getExtensionSettings(): Promise<ExtensionSettings> {
   return { ...DEFAULT_SETTINGS, ...stored };
 }
 
+/** Reads only the canonical light/dark/auto theme key from storage. */
+async function loadSharedTheme(): Promise<ExtensionSettings["theme"]> {
+  const stored = await chrome.storage.sync.get("theme");
+  const value = stored.theme;
+  if (value === "light" || value === "dark" || value === "auto") {
+    return value;
+  }
+  return DEFAULT_SETTINGS.theme;
+}
+
+/**
+ * One-shot migration: promote a non-sepia readerSettings.theme
+ * (legacy data from when the reader's theme was independent) up to
+ * the canonical shared `theme` key so existing users don't perceive
+ * a silent reset to "auto" after the popup and reader started
+ * sharing the value. Idempotent via THEME_MIGRATION_FLAG.
+ *
+ * Only promotes when the shared key is at default ("auto") -- if the
+ * user has already explicitly chosen a shared theme, that wins.
+ *
+ * Exported so the library shell can run this before initReader/
+ * applyCanonicalTheme so the first paint reflects the migrated value.
+ */
+export async function migrateThemeIfNeeded(): Promise<void> {
+  const stored = await chrome.storage.sync.get([
+    THEME_MIGRATION_FLAG,
+    "theme",
+    "readerSettings",
+  ]);
+  if (stored[THEME_MIGRATION_FLAG]) return;
+
+  const sharedTheme = stored.theme as string | undefined;
+  const reader = stored.readerSettings as Partial<ReaderSettings> | undefined;
+  const readerTheme = reader?.theme;
+  const sharedIsDefault = !sharedTheme || sharedTheme === "auto";
+
+  if ((readerTheme === "light" || readerTheme === "dark") && sharedIsDefault) {
+    await chrome.storage.sync.set({
+      theme: readerTheme,
+      readerSettings: { ...reader, theme: "auto" },
+      [THEME_MIGRATION_FLAG]: true,
+    });
+    return;
+  }
+
+  await chrome.storage.sync.set({ [THEME_MIGRATION_FLAG]: true });
+}
+
 // ─── Reading state persistence ─────────────────────────────────────
 
 export async function saveReadingState(state: ReadingState): Promise<void> {
@@ -307,13 +379,42 @@ export async function updateRecentFiles(state: ReadingState): Promise<void> {
 
 // ─── Theme resolution ──────────────────────────────────────────────
 
-function resolveTheme(theme: ReaderSettings["theme"]): "light" | "dark" | "sepia" {
-  if (theme === "light" || theme === "dark" || theme === "sepia") return theme;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+/**
+ * Apply the effective body[data-theme] using the reader's sepia
+ * override (if any) layered over the shared light/dark/auto value.
+ * See src/shared/theme.ts for the routing rules.
+ */
+function applyTheme(): void {
+  document.body.setAttribute(
+    "data-theme",
+    resolveEffectiveTheme(readerSettings.theme, currentSharedTheme),
+  );
 }
 
-function applyTheme(theme: ReaderSettings["theme"]): void {
-  document.body.setAttribute("data-theme", resolveTheme(theme));
+/**
+ * Pick the dropdown value to surface in the settings panel:
+ *   - "sepia" wins whenever the reader has the override set (because
+ *     sepia is reader-only and the user expects the UI to show the
+ *     active state)
+ *   - otherwise mirror the shared theme so changing it from the
+ *     reader is the same UX as changing it from the popup.
+ */
+function dropdownThemeValue(): ReaderSettings["theme"] {
+  return readerSettings.theme === "sepia" ? "sepia" : currentSharedTheme;
+}
+
+/**
+ * Synthesize a ReaderSettings whose `theme` field is the *effective*
+ * value (sepia if overridden, else the shared light/dark/auto). The
+ * format renderers (PDF dark-invert, EPUB iframe theme injection,
+ * DOM renderer base) read this field to drive their own
+ * format-specific theming and previously assumed it was the only
+ * source of truth. With the shared/override split they need the
+ * resolved value, not the storage-layer one.
+ */
+function effectiveReaderSettings(): ReaderSettings {
+  if (readerSettings.theme === "sepia") return readerSettings;
+  return { ...readerSettings, theme: currentSharedTheme };
 }
 
 // ─── TOC rendering ─────────────────────────────────────────────────
@@ -712,7 +813,7 @@ async function openFile(
     renderer.setInitialFlow("paginated");
   }
   await renderer.renderTo(els.readerContent);
-  renderer.applySettings(readerSettings);
+  renderer.applySettings(effectiveReaderSettings());
   attachSelectionHandler(renderer);
   attachKeyHandler(renderer, els);
 
@@ -819,31 +920,53 @@ function populateSettingsPanel(
   els.fontFamilySetting.value = settings.fontFamily;
   els.lineSpacingSetting.value = String(settings.lineSpacing);
   els.lineSpacingValue.textContent = String(settings.lineSpacing);
-  els.themeSetting.value = settings.theme;
+  els.themeSetting.value = dropdownThemeValue();
   els.readingModeSetting.value = settings.readingMode;
   els.pinyinSetting.checked = settings.pinyinEnabled;
 }
 
-function readSettingsFromPanel(
-  els: ReturnType<typeof getElements>,
-): ReaderSettings {
-  return {
-    fontSize: parseInt(els.fontSizeSetting.value, 10),
-    fontFamily: els.fontFamilySetting.value,
-    lineSpacing: parseFloat(els.lineSpacingSetting.value),
-    theme: els.themeSetting.value as ReaderSettings["theme"],
-    readingMode: els.readingModeSetting.value as ReaderSettings["readingMode"],
-    pinyinEnabled: els.pinyinSetting.checked,
+/**
+ * Consume the current panel state and update both the reader
+ * settings and the in-memory mirror of the shared theme. Theme is
+ * routed through partitionDropdownTheme(): "sepia" stays in the
+ * reader override, anything else updates the shared mirror and
+ * clears the reader override so subsequent loads track shared.
+ *
+ * Storage writes happen in the panel-close handler, not here -- this
+ * function is also used during live preview where we don't want to
+ * thrash chrome.storage on every slider tick.
+ */
+function syncPanelToState(els: ReturnType<typeof getElements>): void {
+  const fontSize = parseInt(els.fontSizeSetting.value, 10);
+  const fontFamily = els.fontFamilySetting.value;
+  const lineSpacing = parseFloat(els.lineSpacingSetting.value);
+  const readingMode = els.readingModeSetting.value as ReaderSettings["readingMode"];
+  const pinyinEnabled = els.pinyinSetting.checked;
+
+  const { readerTheme, sharedTheme } = partitionDropdownTheme(
+    els.themeSetting.value,
+  );
+
+  readerSettings = {
+    fontSize,
+    fontFamily,
+    lineSpacing,
+    theme: readerTheme,
+    readingMode,
+    pinyinEnabled,
   };
+  if (sharedTheme !== null) {
+    currentSharedTheme = sharedTheme;
+  }
 }
 
 // ─── Live settings application ─────────────────────────────────────
 
 function applyCurrentSettings(els: ReturnType<typeof getElements>): void {
-  readerSettings = readSettingsFromPanel(els);
-  applyTheme(readerSettings.theme);
+  syncPanelToState(els);
+  applyTheme();
   if (currentRenderer) {
-    currentRenderer.applySettings(readerSettings);
+    currentRenderer.applySettings(effectiveReaderSettings());
     // DOM renderers reflow text without touching scrollTop, so the
     // pixel position now points at different words. PDF rerenders
     // (rebuilds pages) handle their own page-level restore. Either
@@ -1064,8 +1187,45 @@ async function goToLanding(els: ReturnType<typeof getElements>): Promise<void> {
 export async function initReader(): Promise<void> {
   const els = getElements();
   readerSettings = await loadReaderSettings();
-  applyTheme(readerSettings.theme);
+  currentSharedTheme = await loadSharedTheme();
+  applyTheme();
   populateSettingsPanel(els, readerSettings);
+
+  // Live-propagate shared theme changes (e.g. user picks Dark in the
+  // popup while the library tab is open) without requiring a reload.
+  // Bound exactly once per reader-init -- the listener guard removes
+  // the previous one if initReader runs again (hot reload, tests).
+  if (typeof chrome.storage?.onChanged?.addListener === "function") {
+    if (storageChangeListener) {
+      try {
+        chrome.storage.onChanged.removeListener(storageChangeListener);
+      } catch {
+        // older Chrome shims may throw if the listener wasn't attached
+      }
+    }
+    storageChangeListener = (changes, area) => {
+      if (area !== "sync") return;
+      const change = changes.theme;
+      if (!change) return;
+      const next = change.newValue;
+      if (next === "light" || next === "dark" || next === "auto") {
+        currentSharedTheme = next;
+      } else if (next === undefined) {
+        currentSharedTheme = DEFAULT_SETTINGS.theme;
+      }
+      applyTheme();
+      // Keep the dropdown in sync if the panel is currently open so
+      // the user doesn't see a stale selection.
+      els.themeSetting.value = dropdownThemeValue();
+      // Re-apply the renderer's settings so format-specific theming
+      // (PDF dark inversion, EPUB iframe colors) flips along with
+      // the rest of the page when the popup writes a new value.
+      if (currentRenderer && readerSettings.theme !== "sepia") {
+        currentRenderer.applySettings(effectiveReaderSettings());
+      }
+    };
+    chrome.storage.onChanged.addListener(storageChangeListener);
+  }
 
   els.openFileBtn?.classList.add("hidden");
 
@@ -1227,14 +1387,20 @@ export async function initReader(): Promise<void> {
 
   els.settingsClose.addEventListener("click", async () => {
     const prevMode = readerSettings.readingMode;
-    readerSettings = readSettingsFromPanel(els);
-    applyTheme(readerSettings.theme);
+    const { sharedTheme: pickedShared } = partitionDropdownTheme(
+      els.themeSetting.value,
+    );
+    syncPanelToState(els);
+    applyTheme();
 
     if (
       currentRenderer instanceof EpubRenderer &&
       readerSettings.readingMode !== prevMode
     ) {
-      await currentRenderer.applyReadingMode(readerSettings.readingMode, readerSettings);
+      await currentRenderer.applyReadingMode(
+        readerSettings.readingMode,
+        effectiveReaderSettings(),
+      );
       attachSelectionHandler(currentRenderer);
       attachKeyHandler(currentRenderer, els);
       // applyReadingMode rebuilds the rendition and only restores the
@@ -1244,6 +1410,12 @@ export async function initReader(): Promise<void> {
 
     els.settingsPanel.classList.add("hidden");
     await saveReaderSettings(readerSettings);
+    // When the user picked a non-sepia theme from the reader, that
+    // value belongs in the shared key so the popup, overlay, and hub
+    // all follow. Sepia stays reader-local (pickedShared === null).
+    if (pickedShared !== null) {
+      await chrome.storage.sync.set({ theme: pickedShared });
+    }
   });
 
   els.fontSizeSetting.addEventListener("input", () => {

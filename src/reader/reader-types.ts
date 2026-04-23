@@ -9,6 +9,19 @@
  *      READER_SPEC.md Section 10 "Reading State Persistence" for state types.
  */
 
+/**
+ * Theme value persisted in readerSettings.theme.
+ *
+ * Only "sepia" is a reader-specific override that takes precedence
+ * over the canonical extension theme (chrome.storage.sync.theme).
+ * Any other value ("light" | "dark" | "auto") is informational only;
+ * the effective body[data-theme] is resolved from the shared key
+ * via resolveEffectiveTheme() in src/shared/theme.ts.
+ *
+ * The dropdown still presents all four choices so the user can pick
+ * sepia OR change the shared theme from inside the reader. See
+ * partitionDropdownTheme() for the routing logic.
+ */
 export type ReaderTheme = "light" | "dark" | "sepia" | "auto";
 
 export interface TocEntry {

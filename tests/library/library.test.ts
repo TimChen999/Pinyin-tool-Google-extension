@@ -17,6 +17,7 @@ vi.mock("../../src/reader/reader", () => ({
   initReader: vi.fn().mockResolvedValue(undefined),
   captureReaderState: vi.fn(),
   restoreReaderPosition: vi.fn().mockResolvedValue(undefined),
+  migrateThemeIfNeeded: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../src/hub/hub", () => ({
@@ -25,12 +26,18 @@ vi.mock("../../src/hub/hub", () => ({
   refreshFlashcardsView: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { initReader, captureReaderState, restoreReaderPosition } from "../../src/reader/reader";
+import {
+  initReader,
+  captureReaderState,
+  restoreReaderPosition,
+  migrateThemeIfNeeded,
+} from "../../src/reader/reader";
 import { initHub, refreshVocabView, refreshFlashcardsView } from "../../src/hub/hub";
 
 const mockedInitReader = initReader as ReturnType<typeof vi.fn>;
 const mockedCaptureReaderState = captureReaderState as ReturnType<typeof vi.fn>;
 const mockedRestoreReaderPosition = restoreReaderPosition as ReturnType<typeof vi.fn>;
+const mockedMigrateTheme = migrateThemeIfNeeded as ReturnType<typeof vi.fn>;
 const mockedInitHub = initHub as ReturnType<typeof vi.fn>;
 const mockedRefreshVocabView = refreshVocabView as ReturnType<typeof vi.fn>;
 const mockedRefreshFlashcardsView = refreshFlashcardsView as ReturnType<typeof vi.fn>;
@@ -92,6 +99,7 @@ async function loadLibrary() {
     initReader: mockedInitReader,
     captureReaderState: mockedCaptureReaderState,
     restoreReaderPosition: mockedRestoreReaderPosition,
+    migrateThemeIfNeeded: mockedMigrateTheme,
   }));
   vi.doMock("../../src/hub/hub", () => ({
     initHub: mockedInitHub,
@@ -121,6 +129,7 @@ describe("library page", () => {
     mockedInitReader.mockReset().mockResolvedValue(undefined);
     mockedCaptureReaderState.mockReset();
     mockedRestoreReaderPosition.mockReset().mockResolvedValue(undefined);
+    mockedMigrateTheme.mockReset().mockResolvedValue(undefined);
     mockedInitHub.mockReset().mockResolvedValue(undefined);
     mockedRefreshVocabView.mockReset().mockResolvedValue(undefined);
     mockedRefreshFlashcardsView.mockReset().mockResolvedValue(undefined);
@@ -172,7 +181,38 @@ describe("library page", () => {
       vi.unstubAllGlobals();
     });
 
-    it("passes sepia through unchanged", async () => {
+    it("applies sepia from readerSettings even when shared theme is light", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({
+          theme: "light",
+          readerSettings: { theme: "sepia" },
+        }),
+      );
+
+      const mod = await loadLibrary();
+      await mod.initLibrary();
+
+      // Reader's sepia override beats the canonical light/dark theme.
+      expect(document.body.getAttribute("data-theme")).toBe("sepia");
+    });
+
+    it("ignores non-sepia readerSettings.theme and uses shared instead", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({
+          theme: "dark",
+          readerSettings: { theme: "light" },
+        }),
+      );
+
+      const mod = await loadLibrary();
+      await mod.initLibrary();
+
+      // Reader override is sepia-only; "light" is informational and
+      // the shared theme wins.
+      expect(document.body.getAttribute("data-theme")).toBe("dark");
+    });
+
+    it("still passes legacy sepia in the shared key through unchanged", async () => {
       chrome.storage.sync.get.mockImplementation(() =>
         Promise.resolve({ theme: "sepia" }),
       );
@@ -180,7 +220,55 @@ describe("library page", () => {
       const mod = await loadLibrary();
       await mod.initLibrary();
 
+      // Defensive: earlier builds could write sepia into the shared key.
+      // Don't crash and keep the visible state consistent.
       expect(document.body.getAttribute("data-theme")).toBe("sepia");
+    });
+
+    it("runs migrateThemeIfNeeded before initReader", async () => {
+      const callOrder: string[] = [];
+      mockedMigrateTheme.mockImplementation(async () => {
+        callOrder.push("migrate");
+      });
+      mockedInitReader.mockImplementation(async () => {
+        callOrder.push("initReader");
+      });
+
+      const mod = await loadLibrary();
+      await mod.initLibrary();
+
+      expect(callOrder).toEqual(["migrate", "initReader"]);
+    });
+
+    it("re-applies the body theme when chrome.storage.sync.theme changes", async () => {
+      const listeners: Array<
+        (changes: Record<string, chrome.storage.StorageChange>, area: string) => void
+      > = [];
+      chrome.storage.onChanged.addListener.mockImplementation(
+        (l: (typeof listeners)[number]) => {
+          listeners.push(l);
+        },
+      );
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ theme: "light" }),
+      );
+
+      const mod = await loadLibrary();
+      await mod.initLibrary();
+      expect(document.body.getAttribute("data-theme")).toBe("light");
+
+      // Popup writes a new theme; library should re-resolve and update body.
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ theme: "dark" }),
+      );
+      for (const l of listeners) {
+        l({ theme: { newValue: "dark", oldValue: "light" } }, "sync");
+      }
+      // applyCanonicalTheme is async; wait a tick.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(document.body.getAttribute("data-theme")).toBe("dark");
     });
   });
 

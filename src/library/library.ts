@@ -14,8 +14,15 @@
  * hub.ts) with the library-level tab indicator.
  */
 
-import { initReader, captureReaderState, restoreReaderPosition } from "../reader/reader";
+import {
+  initReader,
+  captureReaderState,
+  restoreReaderPosition,
+  migrateThemeIfNeeded,
+} from "../reader/reader";
 import { initHub, refreshVocabView, refreshFlashcardsView } from "../hub/hub";
+import { resolveEffectiveTheme } from "../shared/theme";
+import type { ReaderSettings } from "../reader/reader-types";
 
 type LibraryTab = "reader" | "vocab" | "flashcards";
 
@@ -135,7 +142,15 @@ export function getInitialTab(search: string = window.location.search): LibraryT
 // ─── Theme sync ────────────────────────────────────────────────────
 
 /**
- * Resolve the user's theme preference to a concrete CSS state.
+ * Resolve and write the effective body[data-theme]. The result is
+ * the same one the reader computes -- two storage keys participate:
+ *
+ *   chrome.storage.sync.theme           -- canonical light/dark/auto
+ *                                          (owned by the popup).
+ *   readerSettings.theme === "sepia"    -- reader-only override that
+ *                                          takes precedence so the
+ *                                          whole library shell tints
+ *                                          sepia while reading.
  *
  * Reader.css only defines its CSS custom properties (--bg, --text,
  * --border, --accent, --surface, --pinyin, --sidebar-bg, --toolbar-
@@ -143,33 +158,48 @@ export function getInitialTab(search: string = window.location.search): LibraryT
  * body in "auto", those vars are undefined inside the reader pane,
  * which makes the settings panel transparent (`background: var(--bg)`)
  * and erases the drop-zone border (`border: 2px dashed var(--border)`).
- *
- * To keep reader.css, hub.css, and library.css all aligned we resolve
- * "auto" to "light" or "dark" via prefers-color-scheme before writing
- * to body[data-theme]. "sepia" is reader-only but valid; pass through.
+ * resolveEffectiveTheme() collapses "auto" to "light"/"dark" via
+ * prefers-color-scheme before we write the attribute.
  */
-function resolveTheme(theme: string): "light" | "dark" | "sepia" {
-  if (theme === "light" || theme === "dark" || theme === "sepia") return theme;
-  const prefersDark =
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-color-scheme: dark)").matches;
-  return prefersDark ? "dark" : "light";
+async function applyCanonicalTheme(): Promise<void> {
+  const stored = await chrome.storage.sync.get(["theme", "readerSettings"]);
+  const sharedTheme = stored.theme as string | undefined;
+  const reader = stored.readerSettings as Partial<ReaderSettings> | undefined;
+  document.body.setAttribute(
+    "data-theme",
+    resolveEffectiveTheme(reader?.theme, sharedTheme),
+  );
 }
 
-async function applyCanonicalTheme(): Promise<void> {
-  const stored = await chrome.storage.sync.get("theme");
-  const theme = (stored.theme as string) ?? "auto";
-  document.body.setAttribute("data-theme", resolveTheme(theme));
+/**
+ * Bind a chrome.storage.onChanged listener so the body[data-theme]
+ * attribute tracks live changes from any surface (popup writes the
+ * shared key, the reader settings panel writes either or both keys).
+ * Without this the library shell would show a stale theme until the
+ * next page reload.
+ */
+function setupThemeSync(): void {
+  if (typeof chrome.storage?.onChanged?.addListener !== "function") return;
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "sync") return;
+    if (!changes.theme && !changes.readerSettings) return;
+    void applyCanonicalTheme();
+  });
 }
 
 // ─── Init ──────────────────────────────────────────────────────────
 
 export async function initLibrary(): Promise<void> {
+  // Run the one-shot reader-theme -> shared-theme migration BEFORE
+  // initReader/applyCanonicalTheme so the first paint reflects any
+  // promoted value rather than briefly showing the un-migrated one.
+  await migrateThemeIfNeeded();
   await initReader();
   await initHub();
   setupLibraryTabs();
   setupCrossTabBridges();
   await applyCanonicalTheme();
+  setupThemeSync();
   activateLibraryTab(getInitialTab());
 }
 

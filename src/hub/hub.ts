@@ -9,6 +9,8 @@
 import { getAllVocab, clearVocab, removeWord, updateFlashcardResult, importVocab } from "../background/vocab-store";
 import { FLASHCARD_WRONG_POOL_RATIO } from "../shared/constants";
 import type { VocabEntry } from "../shared/types";
+import { resolveEffectiveTheme } from "../shared/theme";
+import type { ReaderSettings } from "../reader/reader-types";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -346,10 +348,23 @@ async function showSetup(els: ReturnType<typeof getElements>): Promise<void> {
 
 // ─── Theme ───────────────────────────────────────────────────────────
 
+/**
+ * Apply the same effective body[data-theme] the library shell and
+ * reader compute, so a hub mounted standalone (or before the
+ * library shell's applyCanonicalTheme runs) renders with valid CSS
+ * variables instead of a transparent background.
+ *
+ * Reader sepia override wins; otherwise the canonical shared theme
+ * collapses "auto" via prefers-color-scheme. See src/shared/theme.ts.
+ */
 async function applyTheme(): Promise<void> {
-  const stored = await chrome.storage.sync.get("theme");
-  const theme = stored.theme ?? "auto";
-  document.body.setAttribute("data-theme", theme);
+  const stored = await chrome.storage.sync.get(["theme", "readerSettings"]);
+  const sharedTheme = stored.theme as string | undefined;
+  const reader = stored.readerSettings as Partial<ReaderSettings> | undefined;
+  document.body.setAttribute(
+    "data-theme",
+    resolveEffectiveTheme(reader?.theme, sharedTheme),
+  );
 }
 
 // ─── Keyboard Shortcuts ──────────────────────────────────────────────

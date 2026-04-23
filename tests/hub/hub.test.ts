@@ -192,11 +192,29 @@ describe("hub page", () => {
       expect(document.body.getAttribute("data-theme")).toBe("dark");
     });
 
-    it("defaults to auto when no theme stored", async () => {
+    it("collapses missing/auto theme to a concrete state via prefers-color-scheme", async () => {
       chrome.storage.sync.get.mockImplementation(() => Promise.resolve({}));
       mockedGetAllVocab.mockResolvedValue([]);
       await loadHub();
-      expect(document.body.getAttribute("data-theme")).toBe("auto");
+      // Hub now uses the shared resolveEffectiveTheme helper; jsdom
+      // lacks matchMedia so "auto" collapses to "light" rather than
+      // leaking the literal "auto" value into body[data-theme] (which
+      // would leave the hub's CSS variables undefined).
+      expect(document.body.getAttribute("data-theme")).toBe("light");
+    });
+
+    it("applies sepia when readerSettings.theme is sepia", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({
+          theme: "light",
+          readerSettings: { theme: "sepia" },
+        }),
+      );
+      mockedGetAllVocab.mockResolvedValue([]);
+      await loadHub();
+      // Reader's sepia override wins so the hub matches the reader's
+      // active palette.
+      expect(document.body.getAttribute("data-theme")).toBe("sepia");
     });
   });
 

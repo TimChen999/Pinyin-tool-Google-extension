@@ -15,7 +15,9 @@ import {
   getRecentFiles,
   updateRecentFiles,
   openRecentFile,
+  migrateThemeIfNeeded,
 } from "../../src/reader/reader";
+import { THEME_MIGRATION_FLAG } from "../../src/shared/theme";
 
 vi.mock("../../src/reader/file-handle-store", () => ({
   saveFileHandle: vi.fn().mockResolvedValue(undefined),
@@ -336,6 +338,117 @@ describe("reader", () => {
 
       expect(stored.reader_recent).toHaveLength(MAX_RECENT_FILES);
       expect(stored.reader_recent[0].fileHash).toBe("overflow");
+    });
+  });
+
+  // ─── Theme migration ───────────────────────────────────────────
+  //
+  // The reader and the popup used to own independent `theme` storage
+  // keys. Once they were unified onto the canonical
+  // chrome.storage.sync.theme key, an existing user with
+  // readerSettings.theme="dark" but no popup-side theme would have
+  // perceived a silent reset to "auto" on first launch. The
+  // migration promotes that value up so their preference survives.
+
+  describe("migrateThemeIfNeeded()", () => {
+    function buildStorage(initial: Record<string, any>) {
+      const stored: Record<string, any> = { ...initial };
+      chrome.storage.sync.get.mockImplementation((keys: any) => {
+        if (Array.isArray(keys)) {
+          const out: Record<string, any> = {};
+          for (const k of keys) {
+            if (k in stored) out[k] = stored[k];
+          }
+          return Promise.resolve(out);
+        }
+        if (typeof keys === "string") {
+          return Promise.resolve(
+            keys in stored ? { [keys]: stored[keys] } : {},
+          );
+        }
+        return Promise.resolve({ ...stored });
+      });
+      chrome.storage.sync.set.mockImplementation((items: Record<string, any>) => {
+        Object.assign(stored, items);
+        return Promise.resolve();
+      });
+      return stored;
+    }
+
+    it("promotes a 'dark' reader theme into the shared key when shared is default", async () => {
+      const stored = buildStorage({
+        readerSettings: { theme: "dark", fontSize: 20 },
+      });
+
+      await migrateThemeIfNeeded();
+
+      expect(stored.theme).toBe("dark");
+      expect(stored.readerSettings.theme).toBe("auto");
+      expect(stored.readerSettings.fontSize).toBe(20);
+      expect(stored[THEME_MIGRATION_FLAG]).toBe(true);
+    });
+
+    it("promotes a 'light' reader theme when shared key is missing", async () => {
+      const stored = buildStorage({
+        readerSettings: { theme: "light" },
+      });
+
+      await migrateThemeIfNeeded();
+
+      expect(stored.theme).toBe("light");
+      expect(stored.readerSettings.theme).toBe("auto");
+    });
+
+    it("does not overwrite an explicit shared theme", async () => {
+      const stored = buildStorage({
+        theme: "light",
+        readerSettings: { theme: "dark" },
+      });
+
+      await migrateThemeIfNeeded();
+
+      // Shared theme already has user intent; reader value is left
+      // alone, but the flag is still set so we don't run again.
+      expect(stored.theme).toBe("light");
+      expect(stored.readerSettings.theme).toBe("dark");
+      expect(stored[THEME_MIGRATION_FLAG]).toBe(true);
+    });
+
+    it("leaves a sepia reader theme alone (sepia is reader-only)", async () => {
+      const stored = buildStorage({
+        readerSettings: { theme: "sepia" },
+      });
+
+      await migrateThemeIfNeeded();
+
+      expect(stored.theme).toBeUndefined();
+      expect(stored.readerSettings.theme).toBe("sepia");
+      expect(stored[THEME_MIGRATION_FLAG]).toBe(true);
+    });
+
+    it("is idempotent once the flag is set", async () => {
+      const stored = buildStorage({
+        [THEME_MIGRATION_FLAG]: true,
+        readerSettings: { theme: "dark" },
+      });
+
+      await migrateThemeIfNeeded();
+      await migrateThemeIfNeeded();
+
+      // Reader theme is left at its original value because the flag
+      // short-circuits any promotion logic.
+      expect(stored.readerSettings.theme).toBe("dark");
+      expect(stored.theme).toBeUndefined();
+    });
+
+    it("handles a brand-new install with no settings at all", async () => {
+      const stored = buildStorage({});
+
+      await migrateThemeIfNeeded();
+
+      expect(stored[THEME_MIGRATION_FLAG]).toBe(true);
+      expect(stored.theme).toBeUndefined();
+      expect(stored.readerSettings).toBeUndefined();
     });
   });
 
