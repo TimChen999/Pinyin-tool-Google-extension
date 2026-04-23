@@ -25,6 +25,7 @@ body {
   background: #ffffff;
   color: #1a1a1a;
   overflow: hidden;
+  color-scheme: light;
 }
 
 /* ─── Library header ─────────────────────────────────────────── */
@@ -160,6 +161,7 @@ body {
 body[data-theme="dark"] {
   background: #111827;
   color: #f3f4f6;
+  color-scheme: dark;
 }
 
 body[data-theme="dark"] .library-header {
@@ -209,6 +211,7 @@ body[data-theme="dark"] #library-pane-flashcards::-webkit-scrollbar-thumb:hover 
 body[data-theme="sepia"] {
   background: #f4ecd8;
   color: #5c4b37;
+  color-scheme: light;
 }
 
 body[data-theme="sepia"] .library-header {

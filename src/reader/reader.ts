@@ -41,6 +41,7 @@ import {
   resolveEffectiveTheme,
   THEME_MIGRATION_FLAG,
 } from "../shared/theme";
+import { syncRangeFill } from "../shared/range-slider";
 import { saveFileHandle, getFileHandle } from "./file-handle-store";
 import { getRendererForFile, getSupportedExtensions } from "./renderers/renderer-registry";
 import { EpubRenderer } from "./renderers/epub-renderer";
@@ -930,9 +931,11 @@ function populateSettingsPanel(
 ): void {
   els.fontSizeSetting.value = String(settings.fontSize);
   els.fontSizeValue.textContent = String(settings.fontSize);
+  syncRangeFill(els.fontSizeSetting);
   els.fontFamilySetting.value = settings.fontFamily;
   els.lineSpacingSetting.value = String(settings.lineSpacing);
   els.lineSpacingValue.textContent = String(settings.lineSpacing);
+  syncRangeFill(els.lineSpacingSetting);
   els.themeSetting.value = dropdownThemeValue();
   els.readingModeSetting.value = settings.readingMode;
   els.pinyinSetting.checked = settings.pinyinEnabled;
@@ -1442,6 +1445,7 @@ export async function initReader(): Promise<void> {
 
   els.fontSizeSetting.addEventListener("input", () => {
     els.fontSizeValue.textContent = els.fontSizeSetting.value;
+    syncRangeFill(els.fontSizeSetting);
     applyCurrentSettings(els);
   });
 
@@ -1451,6 +1455,7 @@ export async function initReader(): Promise<void> {
 
   els.lineSpacingSetting.addEventListener("input", () => {
     els.lineSpacingValue.textContent = els.lineSpacingSetting.value;
+    syncRangeFill(els.lineSpacingSetting);
     applyCurrentSettings(els);
   });
 

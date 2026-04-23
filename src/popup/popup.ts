@@ -19,6 +19,7 @@ import type { ExtensionSettings, LLMProvider } from "../shared/types";
 import { getAllVocab, removeWord } from "../background/vocab-store";
 import type { VocabEntry } from "../shared/types";
 import { resolveSharedTheme } from "../shared/theme";
+import { syncRangeFill } from "../shared/range-slider";
 
 // ─── DOM References ─────────────────────────────────────────────────
 
@@ -438,6 +439,7 @@ export async function initPopup(): Promise<void> {
   els.baseUrl.value = settings.baseUrl;
   els.fontSize.value = String(settings.fontSize);
   els.fontSizeLabel.textContent = String(settings.fontSize);
+  syncRangeFill(els.fontSize);
   els.theme.value = settings.theme;
   applyTheme(settings.theme);
   els.llmEnabled.checked = settings.llmEnabled;
@@ -500,6 +502,7 @@ export async function initPopup(): Promise<void> {
 
   els.fontSize.addEventListener("input", () => {
     els.fontSizeLabel.textContent = els.fontSize.value;
+    syncRangeFill(els.fontSize);
   });
 
   els.theme.addEventListener("change", () => applyTheme(els.theme.value));
