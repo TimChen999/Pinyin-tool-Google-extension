@@ -1,6 +1,6 @@
 {
   "name": "pinyin-tool-extension",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Chrome extension for Chinese text pinyin annotations and translations",
   "private": true,
   "scripts": {
