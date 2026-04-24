@@ -7,8 +7,13 @@
  */
 
 import { getAllVocab, clearVocab, removeWord, updateFlashcardResult, importVocab } from "../background/vocab-store";
-import { FLASHCARD_WRONG_POOL_RATIO } from "../shared/constants";
-import type { VocabEntry } from "../shared/types";
+import { convertToPinyin } from "../background/pinyin-service";
+import {
+  FLASHCARD_WRONG_POOL_RATIO,
+  DEFAULT_SETTINGS,
+  PROVIDER_PRESETS,
+} from "../shared/constants";
+import type { ExtensionSettings, PinyinStyle, VocabEntry, VocabExample, WordData } from "../shared/types";
 import { resolveEffectiveTheme } from "../shared/theme";
 import type { ReaderSettings } from "../reader/reader-types";
 
@@ -43,6 +48,7 @@ function getElements() {
     fcAnswer: document.getElementById("fc-answer") as HTMLDivElement,
     fcPinyin: document.getElementById("fc-pinyin") as HTMLDivElement,
     fcDefinition: document.getElementById("fc-definition") as HTMLDivElement,
+    fcExample: document.getElementById("fc-example") as HTMLDivElement | null,
     fcFlip: document.getElementById("fc-flip") as HTMLButtonElement,
     fcJudge: document.getElementById("fc-judge") as HTMLDivElement,
     fcWrong: document.getElementById("fc-wrong") as HTMLButtonElement,
@@ -107,10 +113,259 @@ function dismissVocabCard(): void {
   document.querySelector(".vocab-card-overlay")?.remove();
 }
 
-function showVocabCard(
+/**
+ * Reads the user's effective extension settings, layering stored
+ * values over DEFAULT_SETTINGS. Centralized so the example-rendering
+ * paths (vocab card + flashcard) make a single storage round-trip per
+ * card, then derive both `aiAvailable` and `pinyinStyle` from the
+ * same snapshot.
+ */
+async function getEffectiveSettings(): Promise<ExtensionSettings> {
+  const stored = (await chrome.storage.sync.get(null)) as Partial<ExtensionSettings>;
+  return { ...DEFAULT_SETTINGS, ...stored };
+}
+
+/**
+ * Returns true when the user's saved settings would let the service
+ * worker run a sentence translation right now (AI is enabled and the
+ * provider's API key requirement is met). Used to gate the
+ * "Translate" button on missing example translations -- when false,
+ * the button still renders for discoverability but is disabled with
+ * a hint, matching the same behavior the overlay uses for its own
+ * AI-disabled state.
+ */
+function settingsAllowAi(settings: ExtensionSettings): boolean {
+  if (!settings.llmEnabled) return false;
+  const preset = PROVIDER_PRESETS[settings.provider];
+  if (preset.requiresApiKey && !settings.apiKey) return false;
+  return true;
+}
+
+async function isAiAvailable(): Promise<boolean> {
+  return settingsAllowAi(await getEffectiveSettings());
+}
+
+/**
+ * Re-renders the currently open vocab card with the latest data from
+ * storage. Used after example mutations (X / Translate) so the card
+ * always reflects authoritative state without duplicating the build
+ * logic. Closes the card when the entry has been removed elsewhere.
+ */
+async function refreshVocabCard(
+  chars: string,
+  els: ReturnType<typeof getElements>,
+): Promise<void> {
+  const all = await getAllVocab();
+  const fresh = all.find((e) => e.chars === chars);
+  if (!fresh) {
+    dismissVocabCard();
+    return;
+  }
+  await showVocabCard(fresh, els);
+}
+
+/**
+ * pinyin-pro flags non-Chinese segments by passing them through
+ * unchanged (origin === result). We additionally guard with a Han
+ * regex so a Chinese segment that pinyin-pro happens to pass through
+ * (e.g. an unknown char it can't romanize) doesn't accidentally get
+ * a fallback rendering.
+ */
+function isHanSegment(seg: WordData): boolean {
+  if (seg.chars === seg.pinyin) return false;
+  return /\p{Script=Han}/u.test(seg.chars);
+}
+
+/**
+ * Renders `sentence` into `el` as a sequence of `<ruby>` segments,
+ * each carrying word-level pinyin in an `<rt>`. Mirrors how the
+ * page overlay's pinyin row presents Chinese text so example
+ * sentences read consistently across the extension.
+ *
+ * The target word is highlighted by attaching `.vocab-example-target`
+ * to the matching `<ruby>` element instead of wrapping in an extra
+ * span, keeping the ruby base + rt grouped under one element so the
+ * pinyin still floats above the highlighted word.
+ *
+ * Non-Chinese segments (English, punctuation, numbers) are appended
+ * as plain text nodes so they don't get an empty rt above them.
+ *
+ * Falls back to the plain-text highlighter when convertToPinyin
+ * yields nothing (e.g. empty input, or pinyin-pro failing on some
+ * unusual input).
+ */
+function renderHighlightedSentence(
+  el: HTMLElement,
+  sentence: string,
+  target: string,
+  pinyinStyle: PinyinStyle = "toneMarks",
+): void {
+  const segments = convertToPinyin(sentence, pinyinStyle);
+  if (segments.length === 0) {
+    renderPlainHighlightedSentence(el, sentence, target);
+    return;
+  }
+  segments.forEach((seg) => {
+    if (!isHanSegment(seg)) {
+      el.appendChild(document.createTextNode(seg.chars));
+      return;
+    }
+    const ruby = document.createElement("ruby");
+    ruby.className = "vocab-example-ruby";
+    if (seg.chars === target) {
+      ruby.classList.add("vocab-example-target");
+    }
+    const base = document.createElement("span");
+    base.className = "vocab-example-ruby-base";
+    base.textContent = seg.chars;
+    const rt = document.createElement("rt");
+    rt.textContent = seg.pinyin;
+    ruby.append(base, rt);
+    el.appendChild(ruby);
+  });
+}
+
+/**
+ * Plain-text fallback when pinyin segmentation produces nothing.
+ * Splits on every occurrence of `target` and wraps each match in
+ * a span carrying `.vocab-example-target` so the highlight still
+ * works without ruby markup.
+ */
+function renderPlainHighlightedSentence(
+  el: HTMLElement,
+  sentence: string,
+  target: string,
+): void {
+  if (!target || !sentence.includes(target)) {
+    el.textContent = sentence;
+    return;
+  }
+  const parts = sentence.split(target);
+  parts.forEach((part, i) => {
+    if (part) el.appendChild(document.createTextNode(part));
+    if (i < parts.length - 1) {
+      const mark = document.createElement("span");
+      mark.className = "vocab-example-target";
+      mark.textContent = target;
+      el.appendChild(mark);
+    }
+  });
+}
+
+/**
+ * Builds one .vocab-example block: highlighted sentence row with an
+ * inline X (REMOVE_EXAMPLE), and either the stored translation or a
+ * Translate button (ADD_EXAMPLE_TRANSLATION). On a successful
+ * mutation the whole card is re-rendered via refreshVocabCard so the
+ * list of examples and the underlying entry stay in sync.
+ */
+function renderExampleItem(
+  entry: VocabEntry,
+  example: VocabExample,
+  index: number,
+  els: ReturnType<typeof getElements>,
+  aiAvailable: boolean,
+  pinyinStyle: PinyinStyle,
+): HTMLElement {
+  const item = document.createElement("div");
+  item.className = "vocab-example";
+
+  const sentenceRow = document.createElement("div");
+  sentenceRow.className = "vocab-example-sentence-row";
+
+  const sentenceEl = document.createElement("div");
+  sentenceEl.className = "vocab-example-sentence";
+  renderHighlightedSentence(sentenceEl, example.sentence, entry.chars, pinyinStyle);
+
+  const xBtn = document.createElement("button");
+  xBtn.className = "vocab-example-x";
+  xBtn.type = "button";
+  xBtn.title = "Remove this example";
+  xBtn.setAttribute("aria-label", "Remove example");
+  xBtn.textContent = "\u00d7";
+  xBtn.addEventListener("click", async () => {
+    await chrome.runtime.sendMessage({
+      type: "REMOVE_EXAMPLE",
+      chars: entry.chars,
+      index,
+    });
+    await refreshVocabCard(entry.chars, els);
+  });
+
+  sentenceRow.append(sentenceEl, xBtn);
+  item.appendChild(sentenceRow);
+
+  if (example.translation) {
+    const transEl = document.createElement("div");
+    transEl.className = "vocab-example-translation";
+    transEl.textContent = example.translation;
+    item.appendChild(transEl);
+  } else {
+    const translateBtn = document.createElement("button");
+    translateBtn.className = "vocab-example-translate-btn";
+    translateBtn.type = "button";
+    translateBtn.textContent = "Translate";
+    if (!aiAvailable) {
+      translateBtn.disabled = true;
+      translateBtn.title = "Enable AI Translations and add an API key to use this.";
+    } else {
+      translateBtn.addEventListener("click", async () => {
+        translateBtn.disabled = true;
+        translateBtn.textContent = "Translating\u2026";
+        const response = (await chrome.runtime.sendMessage({
+          type: "ADD_EXAMPLE_TRANSLATION",
+          chars: entry.chars,
+          index,
+        })) as { ok: boolean; translation?: string; error?: string } | undefined;
+        if (response?.ok) {
+          await refreshVocabCard(entry.chars, els);
+        } else {
+          translateBtn.disabled = false;
+          translateBtn.textContent = "Retry translate";
+          translateBtn.title = response?.error ?? "Translation failed";
+        }
+      });
+    }
+    item.appendChild(translateBtn);
+  }
+
+  return item;
+}
+
+/**
+ * Builds the optional "Examples" section appended to the vocab card
+ * after the meta line. Returns null when the entry has no examples
+ * so the caller can simply skip appending instead of carrying empty
+ * placeholders.
+ */
+function renderExamplesSection(
   entry: VocabEntry,
   els: ReturnType<typeof getElements>,
-): void {
+  aiAvailable: boolean,
+  pinyinStyle: PinyinStyle,
+): HTMLElement | null {
+  const examples = entry.examples ?? [];
+  if (examples.length === 0) return null;
+
+  const section = document.createElement("div");
+  section.className = "vocab-card-examples";
+
+  const heading = document.createElement("div");
+  heading.className = "vocab-card-examples-heading";
+  heading.textContent = examples.length === 1 ? "Example" : "Examples";
+  section.appendChild(heading);
+
+  examples.forEach((ex, i) => {
+    section.appendChild(renderExampleItem(entry, ex, i, els, aiAvailable, pinyinStyle));
+  });
+
+  return section;
+}
+
+async function showVocabCard(
+  entry: VocabEntry,
+  els: ReturnType<typeof getElements>,
+): Promise<void> {
   dismissVocabCard();
 
   const overlay = document.createElement("div");
@@ -161,13 +416,33 @@ function showVocabCard(
 
   actions.appendChild(deleteBtn);
   card.append(closeBtn, chars, pinyin, def, meta, actions);
+
   overlay.appendChild(card);
 
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) dismissVocabCard();
   });
 
+  // Mount the card synchronously so callers / tests see the overlay
+  // immediately. Examples are enriched in a follow-up async pass --
+  // they need an AI-availability check from chrome.storage.sync, and
+  // delaying the whole mount on that round-trip would cause a
+  // visible blank-then-pop.
   document.body.appendChild(overlay);
+
+  if (!entry.examples || entry.examples.length === 0) return;
+
+  // One storage round-trip per card render: pull both AI availability
+  // and the user's pinyin-style preference from the same snapshot.
+  const settings = await getEffectiveSettings();
+  // Bail if the user dismissed / replaced this card while we were
+  // awaiting -- prevents a stale examples block from appearing under
+  // a different word.
+  if (!document.body.contains(overlay)) return;
+
+  const aiAvailable = settingsAllowAi(settings);
+  const examples = renderExamplesSection(entry, els, aiAvailable, settings.pinyinStyle);
+  if (examples) card.insertBefore(examples, actions);
 }
 
 // ─── Vocab List Rendering ────────────────────────────────────────────
@@ -233,6 +508,12 @@ function showCard(els: ReturnType<typeof getElements>): void {
   els.fcChars.textContent = card.chars;
   els.fcPinyin.textContent = card.pinyin;
   els.fcDefinition.textContent = card.definition;
+  // Reset the example block so the previous card's sentence never
+  // flashes into view before the new one's flip computes.
+  if (els.fcExample) {
+    els.fcExample.innerHTML = "";
+    els.fcExample.classList.add("hidden");
+  }
   els.fcAnswer.classList.add("hidden");
   els.fcFlip.classList.remove("hidden");
   els.fcJudge.classList.add("hidden");
@@ -245,6 +526,94 @@ function flipCard(els: ReturnType<typeof getElements>): void {
   els.fcAnswer.classList.remove("hidden");
   els.fcFlip.classList.add("hidden");
   els.fcJudge.classList.remove("hidden");
+  void renderFlashcardExample(els);
+}
+
+/**
+ * Populates the .fc-example block with the first stored example
+ * sentence for the current card, mirroring the vocab card's logic
+ * but limited to slot 0 to keep the flashcard face uncluttered.
+ * Shows a Translate button when the sentence has no translation;
+ * disabled with a hint when AI Translations isn't configured.
+ *
+ * Async because it has to consult chrome.storage.sync for the
+ * AI-availability check; the surrounding flip happens synchronously
+ * so the user sees pinyin / definition immediately even if this
+ * block hasn't resolved yet.
+ */
+async function renderFlashcardExample(
+  els: ReturnType<typeof getElements>,
+): Promise<void> {
+  if (!session || !els.fcExample) return;
+  const card = session.cards[session.currentIndex];
+  const example = card.examples?.[0];
+  const slot = els.fcExample;
+  slot.innerHTML = "";
+  if (!example) {
+    slot.classList.add("hidden");
+    return;
+  }
+
+  // Capture the index we're rendering for so a stale resolve from a
+  // prior flip can't paint over a newer card.
+  const renderingIndex = session.currentIndex;
+
+  // Single storage round-trip: derive both pinyin style and AI
+  // availability from the same snapshot.
+  const settings = await getEffectiveSettings();
+  if (!session || session.currentIndex !== renderingIndex) return;
+
+  const sentenceEl = document.createElement("div");
+  sentenceEl.className = "fc-example-sentence";
+  renderHighlightedSentence(sentenceEl, example.sentence, card.chars, settings.pinyinStyle);
+  slot.appendChild(sentenceEl);
+
+  if (example.translation) {
+    const transEl = document.createElement("div");
+    transEl.className = "fc-example-translation";
+    transEl.textContent = example.translation;
+    slot.appendChild(transEl);
+    slot.classList.remove("hidden");
+    return;
+  }
+
+  const aiAvailable = settingsAllowAi(settings);
+
+  const translateBtn = document.createElement("button");
+  translateBtn.className = "fc-example-translate-btn";
+  translateBtn.type = "button";
+  translateBtn.textContent = "Translate";
+  if (!aiAvailable) {
+    translateBtn.disabled = true;
+    translateBtn.title = "Enable AI Translations and add an API key to use this.";
+  } else {
+    translateBtn.addEventListener("click", async () => {
+      translateBtn.disabled = true;
+      translateBtn.textContent = "Translating\u2026";
+      const response = (await chrome.runtime.sendMessage({
+        type: "ADD_EXAMPLE_TRANSLATION",
+        chars: card.chars,
+        index: 0,
+      })) as { ok: boolean; translation?: string; error?: string } | undefined;
+      if (!session || session.currentIndex !== renderingIndex) return;
+      if (response?.ok && response.translation) {
+        // Patch the in-memory card so re-flipping in the same session
+        // shows the translation without another LLM call.
+        if (!card.examples) card.examples = [];
+        if (card.examples[0]) card.examples[0].translation = response.translation;
+        const transEl = document.createElement("div");
+        transEl.className = "fc-example-translation";
+        transEl.textContent = response.translation;
+        translateBtn.replaceWith(transEl);
+      } else {
+        translateBtn.disabled = false;
+        translateBtn.textContent = "Retry translate";
+        translateBtn.title = response?.error ?? "Translation failed";
+      }
+    });
+  }
+  slot.appendChild(translateBtn);
+  slot.classList.remove("hidden");
 }
 
 async function answerCard(

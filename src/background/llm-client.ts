@@ -19,6 +19,7 @@ import type { LLMConfig, WordData, APIStyle, PinyinStyle } from "../shared/types
 import {
   LLM_TIMEOUT_MS,
   SYSTEM_PROMPT,
+  SENTENCE_TRANSLATION_PROMPT,
   PROVIDER_PRESETS,
   RETRY_DELAYS_MS,
 } from "../shared/constants";
@@ -525,4 +526,284 @@ function classifyHttpError(status: number): LLMError {
     return { code: "SERVER_ERROR", message: "LLM server error. Try again later." };
   }
   return { code: "UNKNOWN", message: `LLM request failed (HTTP ${status}).` };
+}
+
+// ─── Sentence Translation ──────────────────────────────────────────
+
+/** Result type for the standalone sentence translator. */
+export type SentenceTranslationResult =
+  | { ok: true; translation: string }
+  | { ok: false; error: LLMError };
+
+/**
+ * Translates a single Chinese sentence into English using the slimmed
+ * SENTENCE_TRANSLATION_PROMPT. Used for vocab example sentences --
+ * either auto-fired by the service worker on "+ Vocab" save when AI
+ * Translations is on, or on demand from the vocab card / flashcard
+ * "Translate" button.
+ *
+ * Mirrors queryLLM's resilience layer (per-attempt timeout, jittered
+ * backoff for transient codes) and shares its `config.maxTokens`
+ * budget. Honoring the same budget as the main pinyin call is what
+ * keeps thinking models like Gemini 2.5 Pro working: they spend most
+ * of their output budget on internal reasoning before emitting any
+ * visible text, so a smaller cap here produced finishReason=MAX_TOKENS
+ * with empty parts. The slimmed prompt + tiny {translation} schema
+ * still keeps the actual visible payload (and therefore real cost)
+ * small in practice.
+ */
+export async function translateSentence(
+  sentence: string,
+  config: LLMConfig,
+): Promise<SentenceTranslationResult> {
+  const apiStyle = PROVIDER_PRESETS[config.provider].apiStyle;
+  const totalAttempts = RETRY_DELAYS_MS.length + 1;
+  let last: SentenceTranslationResult = {
+    ok: false,
+    error: { code: "UNKNOWN", message: "Sentence translation failed." },
+  };
+
+  for (let attempt = 1; attempt <= totalAttempts; attempt++) {
+    if (attempt > 1) {
+      const baseDelay = RETRY_DELAYS_MS[attempt - 2];
+      const jittered = baseDelay * (1 + Math.random() * 0.25);
+      await new Promise((r) => setTimeout(r, jittered));
+    }
+
+    const t0 = Date.now();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+
+    let result: SentenceTranslationResult;
+    let status: string;
+
+    try {
+      result = await singleSentenceAttempt(sentence, config, apiStyle, controller.signal);
+      status = result.ok ? "ok" : result.error.code;
+    } catch (err) {
+      const isAbort =
+        err && typeof err === "object" &&
+        (err as { name?: string }).name === "AbortError";
+      result = isAbort
+        ? { ok: false, error: { code: "TIMEOUT", message: "Translation timed out. Try again." } }
+        : { ok: false, error: { code: "NETWORK_ERROR", message: "Could not reach the LLM provider." } };
+      status = result.error.code;
+      if (!isAbort) {
+        console.error("[LLM-translate] Caught error on attempt %d:", attempt, err);
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+
+    logTelemetry({
+      provider: config.provider,
+      model: config.model,
+      attempt,
+      status: `translate:${status}`,
+      latencyMs: Date.now() - t0,
+      partial: false,
+      textLen: sentence.length,
+      contextLen: 0,
+    });
+
+    last = result;
+    if (result.ok) return result;
+    if (!RETRYABLE_CODES.has(result.error.code)) return result;
+  }
+
+  return last;
+}
+
+/**
+ * One HTTP fetch + parse cycle for the sentence translator. Builds a
+ * provider-specific request with SENTENCE_TRANSLATION_PROMPT, then
+ * extracts a translation from the JSON payload.
+ *
+ * Recovery layers (in order, first to produce a non-empty string wins):
+ *  1. Strict JSON parse of the model's text payload, reading
+ *     `obj.translation`. The happy path on every well-behaved provider.
+ *  2. Salvaged JSON parse via tryParseJson(), recovering truncated /
+ *     bracket-unbalanced bodies the same way queryLLM() does. Lets us
+ *     keep a translation even when the response was cut off mid-JSON.
+ *  3. Bare-string fallback for models that ignore the `responseMimeType`
+ *     hint and return the translation as raw text without any JSON
+ *     wrapper. Gated by a heuristic (see acceptBareTranslation) so we
+ *     don't accept random non-translation cruft.
+ *
+ * Only when all three layers fail to produce a non-empty translation
+ * do we surface INVALID_RESPONSE. AbortErrors propagate so the outer
+ * retry loop classifies them as TIMEOUT.
+ */
+async function singleSentenceAttempt(
+  sentence: string,
+  config: LLMConfig,
+  apiStyle: APIStyle,
+  signal: AbortSignal,
+): Promise<SentenceTranslationResult> {
+  const { url, init } = buildSentenceRequest(sentence, config, apiStyle, signal);
+
+  console.log("[LLM-translate] Fetching: %s", redactUrl(url));
+
+  const response = await fetch(url, init);
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "(unreadable)");
+    console.error(
+      "[LLM-translate] HTTP %d %s — body: %s",
+      response.status,
+      response.statusText,
+      body.slice(0, 500),
+    );
+    return { ok: false, error: classifyHttpError(response.status) };
+  }
+
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch {
+    return {
+      ok: false,
+      error: { code: "INVALID_RESPONSE", message: "Received an invalid response from the LLM." },
+    };
+  }
+
+  const raw = extractRawText(data, apiStyle);
+  if (!raw) {
+    console.error("[LLM-translate] No text payload in response envelope. Raw:", data);
+    return {
+      ok: false,
+      error: {
+        code: "INVALID_RESPONSE",
+        message: "The translator returned an empty response. Try again.",
+      },
+    };
+  }
+
+  // Layer 1+2: strict + salvaged JSON parse, sharing queryLLM's
+  // tryParseJson so a truncated/comma-trailing body still yields a
+  // translation.
+  const { value: parsed } = tryParseJson(raw);
+  let translation = readTranslation(parsed);
+
+  // Layer 3: bare-string fallback. Some providers occasionally ignore
+  // responseMimeType and return the English translation as raw text.
+  if (!translation) {
+    translation = acceptBareTranslation(raw);
+  }
+
+  if (!translation) {
+    console.error(
+      "[LLM-translate] Could not extract a translation. Raw payload (%d chars):",
+      raw.length,
+      raw.slice(0, 500),
+    );
+    return {
+      ok: false,
+      error: {
+        code: "INVALID_RESPONSE",
+        message: "The translator returned an empty response. Try again.",
+      },
+    };
+  }
+
+  return { ok: true, translation };
+}
+
+/**
+ * Extracts and trims `translation` from a parsed JSON object. Returns
+ * null when the input isn't an object, the field is missing, the field
+ * isn't a string, or the trimmed value is empty.
+ */
+function readTranslation(parsed: unknown): string | null {
+  if (!parsed || typeof parsed !== "object") return null;
+  const t = (parsed as Record<string, unknown>).translation;
+  if (typeof t !== "string") return null;
+  const trimmed = t.trim();
+  return trimmed ? trimmed : null;
+}
+
+/**
+ * Heuristic recovery for models that emit a bare English string instead
+ * of a {translation: "..."} JSON object. Accepts the raw payload as a
+ * translation only when it's plausibly a sentence:
+ *   - non-empty after trim,
+ *   - doesn't start with `{` or `[` (those were meant to be JSON; if
+ *     the salvager couldn't fix them, guessing risks surfacing garbage),
+ *   - bounded length (1-500 chars; keeps obvious cruft out),
+ *   - contains at least one ASCII letter (filters out pure punctuation
+ *     / numeric noise).
+ *
+ * Surrounding straight or smart quotes are stripped so a model that
+ * wraps its output in '"...."' still yields a clean translation.
+ */
+function acceptBareTranslation(raw: string): string | null {
+  let s = raw.trim();
+  if (!s) return null;
+  if (s.startsWith("{") || s.startsWith("[")) return null;
+  s = s.replace(/^["'\u201c\u2018]+|["'\u201d\u2019]+$/g, "").trim();
+  if (s.length < 1 || s.length > 500) return null;
+  if (!/[A-Za-z]/.test(s)) return null;
+  return s;
+}
+
+/**
+ * Provider-specific request builder for the sentence translator.
+ * Structurally parallel to buildRequest() and uses the same
+ * config.maxTokens as the main pinyin call so thinking models have
+ * enough headroom for internal reasoning + the visible JSON payload.
+ */
+function buildSentenceRequest(
+  sentence: string,
+  config: LLMConfig,
+  apiStyle: APIStyle,
+  signal: AbortSignal,
+): { url: string; init: RequestInit } {
+  const userContent = `Chinese sentence: "${sentence}"`;
+
+  if (apiStyle === "gemini") {
+    return {
+      url: `${config.baseUrl}/v1beta/models/${config.model}:generateContent?key=${config.apiKey}`,
+      init: {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            { parts: [{ text: SENTENCE_TRANSLATION_PROMPT + "\n\n" + userContent }] },
+          ],
+          generationConfig: {
+            temperature: config.temperature,
+            maxOutputTokens: config.maxTokens,
+            responseMimeType: "application/json",
+          },
+        }),
+        signal,
+      },
+    };
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (config.apiKey) {
+    headers["Authorization"] = `Bearer ${config.apiKey}`;
+  }
+
+  return {
+    url: `${config.baseUrl}/chat/completions`,
+    init: {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: config.model,
+        temperature: config.temperature,
+        max_tokens: config.maxTokens,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: SENTENCE_TRANSLATION_PROMPT },
+          { role: "user", content: userContent },
+        ],
+      }),
+      signal,
+    },
+  };
 }

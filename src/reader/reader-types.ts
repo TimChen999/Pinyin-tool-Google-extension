@@ -77,7 +77,18 @@ export interface FormatRenderer {
   next(): Promise<boolean>;
   prev(): Promise<boolean>;
   getCurrentLocation(): string;
-  getVisibleText(): string;
+  /**
+   * Returns text suitable for LLM context extraction.
+   *
+   * When `anchor` is provided the renderer should return a window
+   * centred on the first occurrence of that anchor in the underlying
+   * full text. Without an anchor it returns a leading prefix (legacy
+   * behaviour). The window-around-anchor mode is what keeps the
+   * sentence-context / example-quality flow working when the user
+   * looks up a word past the prefix cap (e.g. mid-chapter selection
+   * in a long EPUB / PDF).
+   */
+  getVisibleText(anchor?: string): string;
   getSpineIndex(href: string): number;
   onRelocated(callback: (spineIndex: number) => void): void;
   applySettings(settings: ReaderSettings): void;

@@ -24,16 +24,49 @@ import overlayStyles from "./overlay.css?inline";
 let shadowRoot: ShadowRoot | null = null;
 let hostElement: HTMLElement | null = null;
 let voicesReady = false;
-let vocabCallback: ((word: { chars: string; pinyin: string; definition: string }) => void) | null = null;
+let vocabCallback:
+  | ((
+      word: { chars: string; pinyin: string; definition: string },
+      context: string,
+    ) => void)
+  | null = null;
 
 /**
- * Registers a callback invoked when the user clicks "Add to Vocab"
- * in a definition card. Keeps overlay.ts free of Chrome extension APIs.
+ * Sentence-bounded context for the currently displayed overlay,
+ * stashed by content.ts via setOverlayContext() right before
+ * showOverlay() runs. The "+ Vocab" button in each card forwards
+ * this string to vocabCallback so the service worker can run it
+ * through the example-quality gate. Reset to "" between lookups so
+ * a stale paragraph from a prior selection is never paired with a
+ * fresh word.
+ */
+let currentContext = "";
+
+/**
+ * Registers a callback invoked when the user clicks "+ Vocab" in a
+ * definition card. The callback receives the word plus the captured
+ * page context (sentence-bounded surroundings of the original
+ * selection) so the service worker can attach it as an example
+ * sentence when the quality gate passes.
  */
 export function setVocabCallback(
-  cb: (word: { chars: string; pinyin: string; definition: string }) => void,
+  cb: (
+    word: { chars: string; pinyin: string; definition: string },
+    context: string,
+  ) => void,
 ): void {
   vocabCallback = cb;
+}
+
+/**
+ * Stashes the page context that surrounds the current selection so
+ * the "+ Vocab" click handler can ship it alongside the word. Called
+ * by content.ts immediately before showOverlay so every card the
+ * user opens carries the latest context. Pass "" to clear (e.g. on
+ * dismiss).
+ */
+export function setOverlayContext(context: string): void {
+  currentContext = context;
 }
 
 // ─── Public API ────────────────────────────────────────────────────
@@ -407,7 +440,7 @@ function handleWordClick(wordEl: HTMLElement, overlay: HTMLElement): void {
     btn.textContent = "+ Vocab";
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      vocabCallback!({ chars, pinyin, definition });
+      vocabCallback!({ chars, pinyin, definition }, currentContext);
       btn.textContent = "Added";
       btn.classList.add("hg-added");
       btn.disabled = true;

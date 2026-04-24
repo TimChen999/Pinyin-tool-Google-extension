@@ -479,11 +479,14 @@ describe("overlay", () => {
       const btn = shadow.querySelector(".hg-add-vocab-btn") as HTMLButtonElement;
       btn.click();
 
-      expect(cb).toHaveBeenCalledWith({
-        chars: "好",
-        pinyin: "hǎo",
-        definition: "good",
-      });
+      expect(cb).toHaveBeenCalledWith(
+        {
+          chars: "好",
+          pinyin: "hǎo",
+          definition: "good",
+        },
+        expect.any(String),
+      );
     });
 
     it("disables the button and shows Added state after click", () => {

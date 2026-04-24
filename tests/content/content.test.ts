@@ -25,6 +25,7 @@ const mockShowTruncationNotice = vi.fn();
 const mockDismissOverlay = vi.fn();
 
 const mockSetVocabCallback = vi.fn();
+const mockSetOverlayContext = vi.fn();
 
 vi.mock("../../src/content/overlay", () => ({
   showOverlay: mockShowOverlay,
@@ -33,6 +34,7 @@ vi.mock("../../src/content/overlay", () => ({
   showTruncationNotice: mockShowTruncationNotice,
   dismissOverlay: mockDismissOverlay,
   setVocabCallback: mockSetVocabCallback,
+  setOverlayContext: mockSetOverlayContext,
 }));
 
 vi.mock("../../src/content/overlay.css?inline", () => ({

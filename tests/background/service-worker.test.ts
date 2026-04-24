@@ -5,6 +5,9 @@ import type { PinyinRequest, PinyinResponseLocal } from "../../src/shared/types"
 vi.mock("../../src/background/vocab-store", () => ({
   recordWords: vi.fn(() => Promise.resolve()),
   removeWord: vi.fn(() => Promise.resolve()),
+  removeExample: vi.fn(() => Promise.resolve()),
+  setExampleTranslation: vi.fn(() => Promise.resolve()),
+  getAllVocab: vi.fn(() => Promise.resolve([])),
 }));
 
 vi.mock("../../src/background/cache", () => ({
@@ -19,6 +22,7 @@ vi.mock("../../src/background/cache", () => ({
 
 vi.mock("../../src/background/llm-client", () => ({
   queryLLM: vi.fn(() => Promise.resolve({ ok: false, error: { code: "UNKNOWN", message: "LLM request failed" } })),
+  translateSentence: vi.fn(() => Promise.resolve({ ok: false, error: { code: "UNKNOWN", message: "translate stub" } })),
   validateLLMResponse: vi.fn(() => true),
 }));
 
@@ -249,7 +253,142 @@ describe("service-worker", () => {
       );
 
       await new Promise((r) => setTimeout(r, 50));
-      expect(recordWords).toHaveBeenCalledWith([word]);
+      expect(recordWords).toHaveBeenCalledWith([word], undefined);
+    });
+
+    it("RECORD_WORD with low-quality context records word without an example", async () => {
+      const { recordWords } = await import("../../src/background/vocab-store");
+      const { translateSentence } = await import("../../src/background/llm-client");
+      (recordWords as ReturnType<typeof vi.fn>).mockClear();
+      (translateSentence as ReturnType<typeof vi.fn>).mockClear();
+
+      await loadServiceWorker();
+
+      const word = { chars: "学习", pinyin: "xué xí", definition: "to study" };
+      chrome.runtime.onMessage.callListeners(
+        { type: "RECORD_WORD", word, context: "学" },
+        { tab: { id: 1 } },
+        vi.fn(),
+      );
+
+      await new Promise((r) => setTimeout(r, 50));
+      expect(recordWords).toHaveBeenCalledWith([word], undefined);
+      expect(translateSentence).not.toHaveBeenCalled();
+    });
+
+    it("RECORD_WORD with good context records word + example (AI off)", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ llmEnabled: false }),
+      );
+
+      const { recordWords } = await import("../../src/background/vocab-store");
+      const { translateSentence } = await import("../../src/background/llm-client");
+      (recordWords as ReturnType<typeof vi.fn>).mockClear();
+      (translateSentence as ReturnType<typeof vi.fn>).mockClear();
+
+      await loadServiceWorker();
+
+      const word = { chars: "学习", pinyin: "xué xí", definition: "to study" };
+      const context = "我每天都在学习中文。";
+      chrome.runtime.onMessage.callListeners(
+        { type: "RECORD_WORD", word, context },
+        { tab: { id: 1 } },
+        vi.fn(),
+      );
+
+      await new Promise((r) => setTimeout(r, 50));
+      // chrome.runtime.onMessage listener registrations accumulate across
+      // loadServiceWorker() calls in this file, so recordWords may be
+      // invoked once per accumulated listener -- just verify the args
+      // shape rather than the call count.
+      expect(recordWords).toHaveBeenCalled();
+      const lastArgs = (recordWords as ReturnType<typeof vi.fn>).mock.calls.at(-1)!;
+      expect(lastArgs[0]).toEqual([word]);
+      expect(lastArgs[1]).toMatchObject({ sentence: context });
+      expect(lastArgs[1].capturedAt).toBeTypeOf("number");
+      expect(translateSentence).not.toHaveBeenCalled();
+    });
+
+    it("RECORD_WORD with good context + AI on triggers translation and persists it", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ llmEnabled: true, apiKey: "test-key" }),
+      );
+
+      const { recordWords, setExampleTranslation, getAllVocab } = await import(
+        "../../src/background/vocab-store"
+      );
+      const { translateSentence } = await import("../../src/background/llm-client");
+      (recordWords as ReturnType<typeof vi.fn>).mockClear();
+      (translateSentence as ReturnType<typeof vi.fn>).mockClear();
+      (setExampleTranslation as ReturnType<typeof vi.fn>).mockClear();
+      const word = { chars: "学习", pinyin: "xué xí", definition: "to study" };
+      const context = "我每天都在学习中文。";
+      (getAllVocab as ReturnType<typeof vi.fn>).mockResolvedValue([
+        {
+          chars: word.chars,
+          examples: [{ sentence: context, capturedAt: 1 }],
+        },
+      ]);
+      (translateSentence as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+        translation: "I study Chinese every day.",
+      });
+
+      await loadServiceWorker();
+
+      chrome.runtime.onMessage.callListeners(
+        { type: "RECORD_WORD", word, context },
+        { tab: { id: 1 } },
+        vi.fn(),
+      );
+
+      await vi.waitFor(() => expect(translateSentence).toHaveBeenCalled());
+      await vi.waitFor(() =>
+        expect(setExampleTranslation).toHaveBeenCalledWith(
+          word.chars,
+          0,
+          "I study Chinese every day.",
+        ),
+      );
+      expect(translateSentence).toHaveBeenCalledWith(context, expect.anything());
+    });
+
+    it("RECORD_WORD with good context + AI on does not persist when translation fails", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ llmEnabled: true, apiKey: "test-key" }),
+      );
+
+      const { recordWords, setExampleTranslation, getAllVocab } = await import(
+        "../../src/background/vocab-store"
+      );
+      const { translateSentence } = await import("../../src/background/llm-client");
+      (recordWords as ReturnType<typeof vi.fn>).mockClear();
+      (translateSentence as ReturnType<typeof vi.fn>).mockClear();
+      (setExampleTranslation as ReturnType<typeof vi.fn>).mockClear();
+      const word = { chars: "学习", pinyin: "xué xí", definition: "to study" };
+      const context = "我每天都在学习中文。";
+      (getAllVocab as ReturnType<typeof vi.fn>).mockResolvedValue([
+        {
+          chars: word.chars,
+          examples: [{ sentence: context, capturedAt: 1 }],
+        },
+      ]);
+      (translateSentence as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: false,
+        error: { code: "NETWORK", message: "fail" },
+      });
+
+      await loadServiceWorker();
+
+      chrome.runtime.onMessage.callListeners(
+        { type: "RECORD_WORD", word, context },
+        { tab: { id: 1 } },
+        vi.fn(),
+      );
+
+      await vi.waitFor(() => expect(translateSentence).toHaveBeenCalled());
+      await new Promise((r) => setTimeout(r, 50));
+      expect(setExampleTranslation).not.toHaveBeenCalled();
     });
 
     it("calls removeWord when REMOVE_WORD message is received", async () => {
@@ -266,6 +405,96 @@ describe("service-worker", () => {
 
       await new Promise((r) => setTimeout(r, 50));
       expect(removeWord).toHaveBeenCalledWith("学习");
+    });
+
+    it("calls removeExample when REMOVE_EXAMPLE message is received", async () => {
+      const { removeExample } = await import("../../src/background/vocab-store");
+      (removeExample as ReturnType<typeof vi.fn>).mockClear();
+
+      await loadServiceWorker();
+
+      chrome.runtime.onMessage.callListeners(
+        { type: "REMOVE_EXAMPLE", chars: "学习", index: 1 },
+        { tab: { id: 1 } },
+        vi.fn(),
+      );
+
+      await new Promise((r) => setTimeout(r, 50));
+      expect(removeExample).toHaveBeenCalledWith("学习", 1);
+    });
+
+    it("ADD_EXAMPLE_TRANSLATION translates and persists", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ llmEnabled: true, apiKey: "test-key" }),
+      );
+
+      const { getAllVocab, setExampleTranslation } = await import(
+        "../../src/background/vocab-store"
+      );
+      const { translateSentence } = await import("../../src/background/llm-client");
+      (getAllVocab as ReturnType<typeof vi.fn>).mockResolvedValue([
+        {
+          chars: "学习",
+          examples: [{ sentence: "我在学习。", capturedAt: 1 }],
+        },
+      ]);
+      (translateSentence as ReturnType<typeof vi.fn>).mockClear();
+      (setExampleTranslation as ReturnType<typeof vi.fn>).mockClear();
+      (translateSentence as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+        translation: "I am studying.",
+      });
+
+      await loadServiceWorker();
+
+      const sendResponse = vi.fn();
+      chrome.runtime.onMessage.callListeners(
+        { type: "ADD_EXAMPLE_TRANSLATION", chars: "学习", index: 0 },
+        { tab: { id: 1 } },
+        sendResponse,
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      expect(translateSentence).toHaveBeenCalledWith("我在学习。", expect.anything());
+      expect(setExampleTranslation).toHaveBeenCalledWith("学习", 0, "I am studying.");
+      expect(sendResponse).toHaveBeenCalledWith(
+        expect.objectContaining({ ok: true, translation: "I am studying." }),
+      );
+    });
+
+    it("ADD_EXAMPLE_TRANSLATION reports failure when AI is disabled", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ llmEnabled: false }),
+      );
+
+      const { getAllVocab, setExampleTranslation } = await import(
+        "../../src/background/vocab-store"
+      );
+      const { translateSentence } = await import("../../src/background/llm-client");
+      (getAllVocab as ReturnType<typeof vi.fn>).mockResolvedValue([
+        {
+          chars: "学习",
+          examples: [{ sentence: "我在学习。", capturedAt: 1 }],
+        },
+      ]);
+      (translateSentence as ReturnType<typeof vi.fn>).mockClear();
+      (setExampleTranslation as ReturnType<typeof vi.fn>).mockClear();
+
+      await loadServiceWorker();
+
+      const sendResponse = vi.fn();
+      chrome.runtime.onMessage.callListeners(
+        { type: "ADD_EXAMPLE_TRANSLATION", chars: "学习", index: 0 },
+        { tab: { id: 1 } },
+        sendResponse,
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      expect(translateSentence).not.toHaveBeenCalled();
+      expect(setExampleTranslation).not.toHaveBeenCalled();
+      expect(sendResponse).toHaveBeenCalledWith(
+        expect.objectContaining({ ok: false }),
+      );
     });
   });
 

@@ -321,6 +321,136 @@ body {
   border-color: #f87171;
 }
 
+/* ─── Vocab card examples ─────────────────────────────────────── */
+/* Captured sentences shown inside the expanded vocab card. Two
+   slots max; each row renders the sentence with the target word
+   highlighted, an inline X to clear the slot, and either the
+   stored translation or a Translate button. */
+
+.vocab-card-examples {
+  margin: 0 0 16px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vocab-card-examples-heading {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6b7280;
+}
+
+.vocab-example {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+.vocab-example-sentence-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.vocab-example-sentence {
+  flex: 1;
+  font-size: 16px;
+  line-height: 2.4;
+  color: #1f2937;
+  word-break: break-word;
+}
+
+.vocab-example-sentence ruby {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: baseline;
+  line-height: 1.2;
+  margin: 0 1px;
+}
+
+.vocab-example-sentence rt {
+  font-size: 11px;
+  color: #6b7280;
+  font-weight: normal;
+  line-height: 1;
+  margin-bottom: 2px;
+  order: -1;
+  user-select: none;
+}
+
+.vocab-example-sentence .vocab-example-ruby-base {
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.vocab-example-target {
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 3px;
+  padding: 0 2px;
+  font-weight: 600;
+}
+
+.vocab-example-sentence ruby.vocab-example-target rt {
+  color: #b45309;
+}
+
+.vocab-example-translation {
+  font-size: 12px;
+  color: #4b5563;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.vocab-example-x {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  font-size: 16px;
+  line-height: 1;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.vocab-example-x:hover {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+.vocab-example-translate-btn {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 3px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #374151;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.vocab-example-translate-btn:hover:not(:disabled) {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.vocab-example-translate-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* ─── Flashcard Setup ─────────────────────────────────────────── */
 
 .fc-setup {
@@ -469,6 +599,89 @@ body {
 .fc-definition {
   font-size: 16px;
   color: #374151;
+}
+
+/* ─── Flashcard example sentence ──────────────────────────────── */
+/* Single example shown on the flashcard flip face. Kept compact so
+   the answer side stays readable; uses the same target-highlight
+   style as the vocab card. */
+
+.fc-example {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-top: 1px solid #e5e7eb;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fc-example.hidden {
+  display: none;
+}
+
+.fc-example-sentence {
+  font-size: 16px;
+  line-height: 2.4;
+  color: #1f2937;
+  word-break: break-word;
+}
+
+.fc-example-sentence ruby {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: baseline;
+  line-height: 1.2;
+  margin: 0 1px;
+}
+
+.fc-example-sentence rt {
+  font-size: 11px;
+  color: #6b7280;
+  font-weight: normal;
+  line-height: 1;
+  margin-bottom: 2px;
+  order: -1;
+  user-select: none;
+}
+
+.fc-example-sentence .vocab-example-ruby-base {
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.fc-example-sentence ruby.vocab-example-target rt {
+  color: #b45309;
+}
+
+.fc-example-translation {
+  font-size: 12px;
+  color: #4b5563;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.fc-example-translate-btn {
+  align-self: flex-start;
+  padding: 3px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #374151;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.fc-example-translate-btn:hover:not(:disabled) {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.fc-example-translate-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* ─── Flashcard Actions ───────────────────────────────────────── */
@@ -808,6 +1021,49 @@ body[data-theme="dark"] .vocab-card-delete:hover {
   border-color: #f87171;
 }
 
+body[data-theme="dark"] .vocab-card-examples {
+  border-top-color: #374151;
+}
+body[data-theme="dark"] .vocab-card-examples-heading {
+  color: #9ca3af;
+}
+body[data-theme="dark"] .vocab-example {
+  background: #111827;
+  border-color: #374151;
+}
+body[data-theme="dark"] .vocab-example-sentence {
+  color: #f3f4f6;
+}
+body[data-theme="dark"] .vocab-example-sentence rt {
+  color: #9ca3af;
+}
+body[data-theme="dark"] .vocab-example-sentence ruby.vocab-example-target rt {
+  color: #fbbf24;
+}
+body[data-theme="dark"] .vocab-example-target {
+  background: #78350f;
+  color: #fde68a;
+}
+body[data-theme="dark"] .vocab-example-translation {
+  color: #9ca3af;
+}
+body[data-theme="dark"] .vocab-example-x {
+  color: #6b7280;
+}
+body[data-theme="dark"] .vocab-example-x:hover {
+  color: #fca5a5;
+  background: #7f1d1d;
+}
+body[data-theme="dark"] .vocab-example-translate-btn {
+  background: #1f2937;
+  border-color: #4b5563;
+  color: #d1d5db;
+}
+body[data-theme="dark"] .vocab-example-translate-btn:hover:not(:disabled) {
+  border-color: #60a5fa;
+  color: #60a5fa;
+}
+
 body[data-theme="dark"] .fc-card {
   background: #1f2937;
   border-color: #374151;
@@ -823,6 +1079,31 @@ body[data-theme="dark"] .fc-pinyin {
 
 body[data-theme="dark"] .fc-definition {
   color: #d1d5db;
+}
+
+body[data-theme="dark"] .fc-example {
+  border-top-color: #374151;
+}
+body[data-theme="dark"] .fc-example-sentence {
+  color: #f3f4f6;
+}
+body[data-theme="dark"] .fc-example-sentence rt {
+  color: #9ca3af;
+}
+body[data-theme="dark"] .fc-example-sentence ruby.vocab-example-target rt {
+  color: #fbbf24;
+}
+body[data-theme="dark"] .fc-example-translation {
+  color: #9ca3af;
+}
+body[data-theme="dark"] .fc-example-translate-btn {
+  background: #1f2937;
+  border-color: #4b5563;
+  color: #d1d5db;
+}
+body[data-theme="dark"] .fc-example-translate-btn:hover:not(:disabled) {
+  border-color: #60a5fa;
+  color: #60a5fa;
 }
 
 body[data-theme="dark"] .fc-size-btn {
@@ -1000,10 +1281,30 @@ body[data-theme="dark"] .hub-tab-content::-webkit-scrollbar-thumb:hover {
   body[data-theme="auto"] .vocab-card-delete { background: #7f1d1d; border-color: #fca5a5; color: #fca5a5; }
   body[data-theme="auto"] .vocab-card-delete:hover { background: #991b1b; border-color: #f87171; }
 
+  body[data-theme="auto"] .vocab-card-examples { border-top-color: #374151; }
+  body[data-theme="auto"] .vocab-card-examples-heading { color: #9ca3af; }
+  body[data-theme="auto"] .vocab-example { background: #111827; border-color: #374151; }
+  body[data-theme="auto"] .vocab-example-sentence { color: #f3f4f6; }
+  body[data-theme="auto"] .vocab-example-sentence rt { color: #9ca3af; }
+  body[data-theme="auto"] .vocab-example-sentence ruby.vocab-example-target rt { color: #fbbf24; }
+  body[data-theme="auto"] .vocab-example-target { background: #78350f; color: #fde68a; }
+  body[data-theme="auto"] .vocab-example-translation { color: #9ca3af; }
+  body[data-theme="auto"] .vocab-example-x { color: #6b7280; }
+  body[data-theme="auto"] .vocab-example-x:hover { color: #fca5a5; background: #7f1d1d; }
+  body[data-theme="auto"] .vocab-example-translate-btn { background: #1f2937; border-color: #4b5563; color: #d1d5db; }
+  body[data-theme="auto"] .vocab-example-translate-btn:hover:not(:disabled) { border-color: #60a5fa; color: #60a5fa; }
+
   body[data-theme="auto"] .fc-card { background: #1f2937; border-color: #374151; }
   body[data-theme="auto"] .fc-chars { color: #f3f4f6; }
   body[data-theme="auto"] .fc-pinyin { color: #9ca3af; }
   body[data-theme="auto"] .fc-definition { color: #d1d5db; }
+  body[data-theme="auto"] .fc-example { border-top-color: #374151; }
+  body[data-theme="auto"] .fc-example-sentence { color: #f3f4f6; }
+  body[data-theme="auto"] .fc-example-sentence rt { color: #9ca3af; }
+  body[data-theme="auto"] .fc-example-sentence ruby.vocab-example-target rt { color: #fbbf24; }
+  body[data-theme="auto"] .fc-example-translation { color: #9ca3af; }
+  body[data-theme="auto"] .fc-example-translate-btn { background: #1f2937; border-color: #4b5563; color: #d1d5db; }
+  body[data-theme="auto"] .fc-example-translate-btn:hover:not(:disabled) { border-color: #60a5fa; color: #60a5fa; }
   body[data-theme="auto"] .fc-size-btn { background: #1f2937; border-color: #4b5563; color: #d1d5db; }
   body[data-theme="auto"] .fc-size-btn:hover { border-color: #60a5fa; color: #60a5fa; }
   body[data-theme="auto"] .fc-size-btn.selected { background: #2563eb; color: #ffffff; border-color: #2563eb; }
@@ -1142,6 +1443,26 @@ body[data-theme="sepia"] .vocab-card-delete:hover {
   border-color: #a0664f;
 }
 
+body[data-theme="sepia"] .vocab-card-examples { border-top-color: #d4c8ab; }
+body[data-theme="sepia"] .vocab-card-examples-heading { color: #8b7355; }
+body[data-theme="sepia"] .vocab-example { background: #ede4cf; border-color: #d4c8ab; }
+body[data-theme="sepia"] .vocab-example-sentence { color: #3b2f23; }
+body[data-theme="sepia"] .vocab-example-sentence rt { color: #8b7355; }
+body[data-theme="sepia"] .vocab-example-sentence ruby.vocab-example-target rt { color: #92400e; }
+body[data-theme="sepia"] .vocab-example-target { background: #f7d774; color: #5c4b37; }
+body[data-theme="sepia"] .vocab-example-translation { color: #6b5942; }
+body[data-theme="sepia"] .vocab-example-x { color: #8b7355; }
+body[data-theme="sepia"] .vocab-example-x:hover { color: #92400e; background: #f5d6cb; }
+body[data-theme="sepia"] .vocab-example-translate-btn {
+  background: #f4ecd8;
+  border-color: #d4c8ab;
+  color: #5c4b37;
+}
+body[data-theme="sepia"] .vocab-example-translate-btn:hover:not(:disabled) {
+  border-color: #b8860b;
+  color: #b8860b;
+}
+
 body[data-theme="sepia"] .fc-card {
   background: #f4ecd8;
   border-color: #d4c8ab;
@@ -1149,6 +1470,20 @@ body[data-theme="sepia"] .fc-card {
 body[data-theme="sepia"] .fc-chars { color: #5c4b37; }
 body[data-theme="sepia"] .fc-pinyin { color: #8b7355; }
 body[data-theme="sepia"] .fc-definition { color: #5c4b37; }
+body[data-theme="sepia"] .fc-example { border-top-color: #d4c8ab; }
+body[data-theme="sepia"] .fc-example-sentence { color: #3b2f23; }
+body[data-theme="sepia"] .fc-example-sentence rt { color: #8b7355; }
+body[data-theme="sepia"] .fc-example-sentence ruby.vocab-example-target rt { color: #92400e; }
+body[data-theme="sepia"] .fc-example-translation { color: #6b5942; }
+body[data-theme="sepia"] .fc-example-translate-btn {
+  background: #f4ecd8;
+  border-color: #d4c8ab;
+  color: #5c4b37;
+}
+body[data-theme="sepia"] .fc-example-translate-btn:hover:not(:disabled) {
+  border-color: #b8860b;
+  color: #b8860b;
+}
 
 body[data-theme="sepia"] .fc-size-btn {
   background: #f4ecd8;

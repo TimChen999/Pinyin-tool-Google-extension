@@ -58,9 +58,27 @@ export interface WordData {
 }
 
 /**
+ * A captured example sentence for a vocab word. Sentences are pulled
+ * from the surrounding page context at "+ Vocab" time and only kept
+ * when they pass the quality gate in shared/example-quality.ts.
+ * `translation` is filled either at capture time (when AI Translations
+ * is on) or later via the on-demand "Translate" button in the vocab
+ * card / flashcard flip view.
+ */
+export interface VocabExample {
+  sentence: string;
+  translation?: string;
+  capturedAt: number;
+}
+
+/**
  * A word recorded by the vocab tracker. Extends the core WordData fields
  * with frequency and timestamp metadata.
  * (VOCAB_SPEC.md Section 2 "Data Model")
+ *
+ * `examples` holds up to MAX_VOCAB_EXAMPLES (2) captured sentences.
+ * Slots are append-only on capture; the user explicitly clears a slot
+ * with the X button before a future capture can refill it.
  */
 export interface VocabEntry {
   chars: string;
@@ -72,6 +90,7 @@ export interface VocabEntry {
   wrongStreak: number;
   totalReviews: number;
   totalCorrect: number;
+  examples?: VocabExample[];
 }
 
 /**
@@ -182,9 +201,15 @@ export type ExtensionMessage =
   | PinyinError
   | { type: "CONTEXT_MENU_TRIGGER"; text: string }
   | { type: "COMMAND_TRIGGER" }
-  | { type: "RECORD_WORD"; word: { chars: string; pinyin: string; definition: string } }
+  | {
+      type: "RECORD_WORD";
+      word: { chars: string; pinyin: string; definition: string };
+      context?: string;
+    }
   | { type: "OCR_START" }
   | { type: "OCR_START_SELECTION" }
   | { type: "REMOVE_WORD"; chars: string }
+  | { type: "REMOVE_EXAMPLE"; chars: string; index: number }
+  | { type: "ADD_EXAMPLE_TRANSLATION"; chars: string; index: number }
   | { type: "OCR_CAPTURE_REQUEST"; rect: { x: number; y: number; width: number; height: number } }
   | { type: "OCR_CAPTURE_RESULT"; dataUrl: string };

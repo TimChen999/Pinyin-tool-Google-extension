@@ -18,6 +18,7 @@ import type {
   BookmarkAnchor,
 } from "../reader-types";
 import { FONT_FAMILY_MAP, THEME_COLORS } from "./_shared/typography";
+import { windowAroundAnchor } from "../../shared/chinese-detect";
 
 export { FONT_FAMILY_MAP, THEME_COLORS };
 
@@ -125,13 +126,14 @@ export class EpubRenderer implements FormatRenderer {
     return location?.start?.cfi ?? "";
   }
 
-  getVisibleText(): string {
+  getVisibleText(anchor?: string): string {
     if (!this.rendition) return "";
     const contents = this.rendition.getContents() as any;
     if (!contents) return "";
     const doc = Array.isArray(contents) ? contents[0] : contents;
     if (!doc?.document) return "";
-    return doc.document.body?.textContent?.slice(0, 500) ?? "";
+    const fullText = doc.document.body?.textContent ?? "";
+    return windowAroundAnchor(fullText, anchor ?? "");
   }
 
   destroy(): void {

@@ -8,27 +8,81 @@
  * See: VOCAB_SPEC.md Section 4 "Storage Design"
  */
 
-import type { VocabEntry, WordData } from "../shared/types";
-import { MAX_VOCAB_ENTRIES, VOCAB_STOP_WORDS } from "../shared/constants";
+import type { VocabEntry, VocabExample, WordData } from "../shared/types";
+import {
+  MAX_VOCAB_ENTRIES,
+  MAX_VOCAB_EXAMPLES,
+  VOCAB_STOP_WORDS,
+} from "../shared/constants";
 
 const STORAGE_KEY = "vocabStore";
 
 type VocabRecord = Record<string, VocabEntry>;
 
 /**
+ * Appends `candidate` into `entry.examples` when there's an open slot
+ * (capped at MAX_VOCAB_EXAMPLES) and an example with the same
+ * `sentence` is not already stored. Mutates the entry in place. The
+ * append-only policy means a full word never has its examples
+ * silently overwritten -- the user clears a slot via the X button
+ * before a future capture can refill it.
+ */
+function tryAppendExample(entry: VocabEntry, candidate: VocabExample): void {
+  if (!entry.examples) entry.examples = [];
+  if (entry.examples.length >= MAX_VOCAB_EXAMPLES) return;
+  if (entry.examples.some((e) => e.sentence === candidate.sentence)) return;
+  // Clone so a later setExampleTranslation / removeExample mutates only
+  // our copy -- callers sometimes reuse the same VocabExample literal
+  // across calls (tests do this; nothing in the runtime forbids it).
+  entry.examples.push({ ...candidate });
+}
+
+/**
+ * Merges incoming `incoming` examples into `entry.examples` for the
+ * import path: union with the existing list, deduped by sentence,
+ * capped at MAX_VOCAB_EXAMPLES, with the existing entries kept in
+ * front so a user's curated translations aren't accidentally
+ * overwritten by an imported sibling.
+ */
+function mergeExamples(
+  entry: VocabEntry,
+  incoming: VocabExample[] | undefined,
+): void {
+  if (!incoming || incoming.length === 0) return;
+  const merged: VocabExample[] = entry.examples ? [...entry.examples] : [];
+  const seen = new Set(merged.map((e) => e.sentence));
+  for (const candidate of incoming) {
+    if (merged.length >= MAX_VOCAB_EXAMPLES) break;
+    if (seen.has(candidate.sentence)) continue;
+    merged.push({ ...candidate });
+    seen.add(candidate.sentence);
+  }
+  if (merged.length > 0) entry.examples = merged;
+}
+
+/**
  * Records a batch of words from a single LLM response or cache hit.
  * New words are created with count 1; existing words get their count
  * incremented and pinyin/definition updated to the latest values.
  * If the total exceeds MAX_VOCAB_ENTRIES, least-frequent entries are evicted.
+ *
+ * `example`, when provided, is attached to the first non-stop-word in
+ * the batch. The "+ Vocab" callback path always records exactly one
+ * word, so this trivially attaches the captured sentence to the
+ * intended target. Phase-2 batch recording paths don't pass an
+ * example, so existing call sites are unaffected.
  */
 export async function recordWords(
   words: Required<WordData>[],
+  example?: VocabExample,
 ): Promise<void> {
   if (words.length === 0) return;
 
   const result = await chrome.storage.local.get(STORAGE_KEY);
   const store: VocabRecord = result[STORAGE_KEY] ?? {};
   const now = Date.now();
+
+  let exampleAttached = false;
 
   for (const word of words) {
     if (VOCAB_STOP_WORDS.has(word.chars)) continue;
@@ -38,15 +92,27 @@ export async function recordWords(
       existing.lastSeen = now;
       existing.pinyin = word.pinyin;
       existing.definition = word.definition;
+      if (example && !exampleAttached) {
+        tryAppendExample(existing, example);
+        exampleAttached = true;
+      }
     } else {
-      store[word.chars] = {
+      const entry: VocabEntry = {
         chars: word.chars,
         pinyin: word.pinyin,
         definition: word.definition,
         count: 1,
         firstSeen: now,
         lastSeen: now,
+        wrongStreak: 0,
+        totalReviews: 0,
+        totalCorrect: 0,
       };
+      if (example && !exampleAttached) {
+        entry.examples = [{ ...example }];
+        exampleAttached = true;
+      }
+      store[word.chars] = entry;
     }
   }
 
@@ -121,6 +187,46 @@ export async function removeWord(chars: string): Promise<void> {
 }
 
 /**
+ * Clears a single example slot on a vocab entry by its array index.
+ * Frees the slot so a future high-quality capture can refill it. No-op
+ * when the word or index is missing. Persists immediately so the UI
+ * sees the change on its next read.
+ */
+export async function removeExample(
+  chars: string,
+  index: number,
+): Promise<void> {
+  const result = await chrome.storage.local.get(STORAGE_KEY);
+  const store: VocabRecord = result[STORAGE_KEY] ?? {};
+  const entry = store[chars];
+  if (!entry || !entry.examples) return;
+  if (index < 0 || index >= entry.examples.length) return;
+  entry.examples.splice(index, 1);
+  if (entry.examples.length === 0) delete entry.examples;
+  await chrome.storage.local.set({ [STORAGE_KEY]: store });
+}
+
+/**
+ * Attaches (or overwrites) the translation field on a single example
+ * slot. Used both by the auto-translate path on RECORD_WORD and by
+ * the on-demand "Translate" button in the vocab card / flashcard
+ * flip view. No-op when the word or index is missing.
+ */
+export async function setExampleTranslation(
+  chars: string,
+  index: number,
+  translation: string,
+): Promise<void> {
+  const result = await chrome.storage.local.get(STORAGE_KEY);
+  const store: VocabRecord = result[STORAGE_KEY] ?? {};
+  const entry = store[chars];
+  if (!entry || !entry.examples) return;
+  if (index < 0 || index >= entry.examples.length) return;
+  entry.examples[index].translation = translation;
+  await chrome.storage.local.set({ [STORAGE_KEY]: store });
+}
+
+/**
  * Merges an array of imported VocabEntry objects into the local store.
  * For duplicates, takes the higher count, earliest firstSeen, latest
  * lastSeen, and the review stats from whichever side has more reviews.
@@ -149,9 +255,10 @@ export async function importVocab(
       }
       existing.pinyin = entry.pinyin;
       existing.definition = entry.definition;
+      mergeExamples(existing, entry.examples);
       updated++;
     } else {
-      store[entry.chars] = {
+      const fresh: VocabEntry = {
         chars: entry.chars,
         pinyin: entry.pinyin,
         definition: entry.definition,
@@ -162,6 +269,12 @@ export async function importVocab(
         totalReviews: entry.totalReviews ?? 0,
         totalCorrect: entry.totalCorrect ?? 0,
       };
+      if (entry.examples && entry.examples.length > 0) {
+        fresh.examples = entry.examples
+          .slice(0, MAX_VOCAB_EXAMPLES)
+          .map((e) => ({ ...e }));
+      }
+      store[entry.chars] = fresh;
       added++;
     }
   }

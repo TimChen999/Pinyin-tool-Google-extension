@@ -69,6 +69,40 @@ export function sentenceContextAround(
 }
 
 /**
+ * Returns a roughly `2*halfWindow + anchor.length` slice of `fullText`
+ * centered on the first occurrence of `anchor`. Used by reader
+ * renderers' getVisibleText() so the selection-based context flow
+ * (LLM disambiguation + example-quality gate) doesn't lose its window
+ * when the user looks up a word past the renderer's prefix cap.
+ *
+ * Falls back to the leading `fallbackPrefix` chars when `anchor` is
+ * empty or not found, mirroring the legacy "first N chars" behaviour
+ * callers relied on.
+ */
+export function windowAroundAnchor(
+  fullText: string,
+  anchor: string,
+  halfWindow = 300,
+  fallbackPrefix = 500,
+): string {
+  if (!fullText) return "";
+  if (!anchor) {
+    return fullText.length > fallbackPrefix
+      ? fullText.slice(0, fallbackPrefix)
+      : fullText;
+  }
+  const idx = fullText.indexOf(anchor);
+  if (idx < 0) {
+    return fullText.length > fallbackPrefix
+      ? fullText.slice(0, fallbackPrefix)
+      : fullText;
+  }
+  const start = Math.max(0, idx - halfWindow);
+  const end = Math.min(fullText.length, idx + anchor.length + halfWindow);
+  return fullText.slice(start, end);
+}
+
+/**
  * Walks up the DOM from the selection's anchor node to find the nearest
  * block-level parent (P, DIV, ARTICLE, SECTION, or BODY) and returns
  * the surrounding sentence(s) trimmed to MAX_CONTEXT_LENGTH.

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { queryLLM, validateLLMResponse, type LLMResult } from "../../src/background/llm-client";
+import {
+  queryLLM,
+  translateSentence,
+  validateLLMResponse,
+  type LLMResult,
+} from "../../src/background/llm-client";
 import type { LLMConfig } from "../../src/shared/types";
 
 // ─── Test Fixtures ──────────────────────────────────────────────────
@@ -299,4 +304,192 @@ describe("validateLLMResponse", () => {
   it("returns false for null input", () => {
     expect(validateLLMResponse(null)).toBe(false);
   });
+});
+
+// ─── translateSentence Tests ───────────────────────────────────────
+
+describe("translateSentence", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.stubGlobal("fetch", vi.fn());
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("returns the translation on a successful OpenAI-compatible response", async () => {
+    (fetch as any).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify({ translation: "I went to the bank yesterday." }) } }],
+      }),
+    });
+
+    const result = await translateSentence("我昨天去银行了。", openaiConfig);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.translation).toBe("I went to the bank yesterday.");
+    }
+  });
+
+  it("uses the slimmed sentence-translation prompt and honors config.maxTokens", async () => {
+    (fetch as any).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify({ translation: "ok" }) } }],
+      }),
+    });
+
+    await translateSentence("我去银行。", openaiConfig);
+
+    const [, options] = (fetch as any).mock.calls[0];
+    const body = JSON.parse(options.body);
+    expect(body.messages).toHaveLength(2);
+    expect(body.messages[0].role).toBe("system");
+    // Slimmed prompt mentions "Chinese-to-English translator" rather
+    // than the full word-segmentation prompt's "language assistant".
+    expect(body.messages[0].content).toContain("translator");
+    expect(body.messages[0].content).not.toContain("Segment");
+    // The translator now reuses the same token budget as the main
+    // pinyin call so thinking models (e.g. Gemini 2.5 Pro) have
+    // headroom for internal reasoning. We assert it threads through
+    // config.maxTokens rather than overriding with a smaller cap.
+    expect(body.max_tokens).toBe(openaiConfig.maxTokens);
+    expect(body.messages[1].content).toContain("我去银行。");
+  });
+
+  it("works against the Gemini provider (parses parts[].text)", async () => {
+    (fetch as any).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        candidates: [
+          { content: { parts: [{ text: JSON.stringify({ translation: "Hello." }) }] } },
+        ],
+      }),
+    });
+
+    const result = await translateSentence("你好。", geminiConfig);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.translation).toBe("Hello.");
+    }
+  });
+
+  it("returns INVALID_RESPONSE when the LLM emits JSON that lacks a translation field", async () => {
+    // Raw payload starts with `{` so the bare-string fallback bails
+    // (a JSON-shaped body the salvager couldn't fix shouldn't be
+    // re-interpreted as raw text). The retry loop tries 3 times then
+    // surfaces the user-actionable empty-response message.
+    (fetch as any).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify({ words: [] }) } }],
+      }),
+    });
+
+    const result = await translateSentence("我去银行。", openaiConfig);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("INVALID_RESPONSE");
+      expect(result.error.message.toLowerCase()).toContain("empty");
+    }
+  });
+
+  it("falls back to the raw text when the LLM returns a bare English string", async () => {
+    // Some providers occasionally ignore responseMimeType and return
+    // the translation as raw text. We accept it as long as it looks
+    // like a sentence (letters present, not JSON-shaped, bounded len).
+    (fetch as any).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: "I went to the bank yesterday." } }],
+      }),
+    });
+
+    const result = await translateSentence("我昨天去银行了。", openaiConfig);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.translation).toBe("I went to the bank yesterday.");
+    }
+  });
+
+  it("strips surrounding quotes from a bare-string translation", async () => {
+    (fetch as any).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '"Hello, world."' } }],
+      }),
+    });
+
+    const result = await translateSentence("你好，世界。", openaiConfig);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.translation).toBe("Hello, world.");
+    }
+  });
+
+  it("rejects a bare payload that has no letters (pure punctuation / digits)", async () => {
+    (fetch as any).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: "1234567890" } }],
+      }),
+    });
+
+    const result = await translateSentence("我去银行。", openaiConfig);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("INVALID_RESPONSE");
+    }
+  });
+
+  it("salvages a translation from a malformed JSON body via tryParseJson", async () => {
+    // Mirrors queryLLM's tolerance: a body with a trailing comma after
+    // the close brace is unparseable as-is but the shared salvager
+    // trims it down to valid JSON and recovers the translation.
+    (fetch as any).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: '{"translation": "I went to the bank yesterday."},',
+            },
+          },
+        ],
+      }),
+    });
+
+    const result = await translateSentence("我昨天去银行了。", openaiConfig);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.translation).toBe("I went to the bank yesterday.");
+    }
+  });
+
+  it("returns AUTH_FAILED on a 401 response", async () => {
+    (fetch as any).mockResolvedValue({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      text: async () => "Unauthorized",
+    });
+
+    const result = await translateSentence("我去银行。", openaiConfig);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("AUTH_FAILED");
+    }
+  });
+
+  it("returns NETWORK_ERROR (after retries) when fetch throws every time", async () => {
+    (fetch as any).mockRejectedValue(new Error("network down"));
+    const result = await translateSentence("我去银行。", openaiConfig);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("NETWORK_ERROR");
+    }
+  }, 15_000);
 });

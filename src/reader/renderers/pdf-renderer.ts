@@ -41,6 +41,7 @@ import type {
   ReaderSettings,
   BookmarkAnchor,
 } from "../reader-types";
+import { windowAroundAnchor } from "../../shared/chinese-detect";
 
 const BASE_SCALE = 1.5;
 const DEFAULT_FONT_SIZE = 18;
@@ -154,11 +155,11 @@ export class PdfRenderer implements FormatRenderer {
     return String(this.currentPage);
   }
 
-  getVisibleText(): string {
+  getVisibleText(anchor?: string): string {
     const target = this.renderedPages.find((p) => p.pageNum === this.currentPage);
     if (!target) return "";
     const text = target.textLayerEl.textContent ?? "";
-    return text.length > 500 ? text.slice(0, 500) : text;
+    return windowAroundAnchor(text, anchor ?? "");
   }
 
   /**

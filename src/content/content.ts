@@ -36,6 +36,7 @@ import {
   showTruncationNotice,
   dismissOverlay,
   setVocabCallback,
+  setOverlayContext,
 } from "./overlay";
 import { startOCRSelection } from "./ocr-selection";
 
@@ -208,6 +209,11 @@ function processSelection(text: string, rect: DOMRect, context: string): void {
     (response: PinyinResponseLocal) => {
       if (requestId !== currentRequestId) return;
       if (!response || response.type !== "PINYIN_RESPONSE_LOCAL") return;
+      // Stash the captured context so the "+ Vocab" click handler in
+      // the overlay can ship it to the service worker for the
+      // example-quality gate. Must precede showOverlay so the very
+      // first card the user sees already has the right context wired.
+      setOverlayContext(context);
       showOverlay(
         response.words,
         rect,
@@ -474,8 +480,8 @@ document.addEventListener("keydown", (e: KeyboardEvent) => {
 
 // ─── Vocab callback ────────────────────────────────────────────────
 
-setVocabCallback((word) => {
-  chrome.runtime.sendMessage({ type: "RECORD_WORD", word });
+setVocabCallback((word, context) => {
+  chrome.runtime.sendMessage({ type: "RECORD_WORD", word, context });
 });
 
 // ─── Theme caching ─────────────────────────────────────────────────

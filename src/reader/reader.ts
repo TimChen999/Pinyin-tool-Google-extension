@@ -27,6 +27,7 @@ import {
   showOverlayError,
   dismissOverlay,
   setVocabCallback,
+  setOverlayContext,
 } from "../content/overlay";
 import {
   DEFAULT_SETTINGS,
@@ -565,6 +566,23 @@ async function processSelection(
   const anchor = currentRenderer?.captureAnchor();
   if (anchor) lastCapturedAnchor = anchor;
 
+  // Sentence-bounded context: pivot off the actual selection inside the
+  // visible page text so the prompt carries only the surrounding
+  // sentence(s) instead of the whole spine. Stabilizes the cache key
+  // (scroll no longer perturbs the hash) and shrinks prefill cost.
+  // Also stashed on the overlay so the "+ Vocab" button can ship it
+  // to the service worker for the example-quality gate.
+  //
+  // We pass `truncated` as the anchor so the renderer slices a window
+  // *centered on the selection* instead of just the leading prefix --
+  // otherwise mid-chapter lookups (selection past the prefix cap)
+  // would arrive at sentenceContextAround with a fullText that doesn't
+  // contain the selection, fall back to returning just the selection
+  // itself, and fail the example-quality gate every time.
+  const visible = currentRenderer?.getVisibleText(truncated) ?? "";
+  const context = sentenceContextAround(visible, truncated);
+  setOverlayContext(context);
+
   showOverlay(
     words,
     rect,
@@ -576,12 +594,6 @@ async function processSelection(
 
   if (!settings.llmEnabled || !readerSettings.pinyinEnabled) return;
 
-  // Sentence-bounded context: pivot off the actual selection inside the
-  // visible page text so the prompt carries only the surrounding
-  // sentence(s) instead of the whole spine. Stabilizes the cache key
-  // (scroll no longer perturbs the hash) and shrinks prefill cost.
-  const visible = currentRenderer?.getVisibleText() ?? "";
-  const context = sentenceContextAround(visible, truncated);
   const cacheKey = await hashText(truncated + context);
 
   const cached = await getFromCache(cacheKey);
@@ -1252,8 +1264,8 @@ export async function initReader(): Promise<void> {
 
   els.openFileBtn?.classList.add("hidden");
 
-  setVocabCallback((word) => {
-    chrome.runtime.sendMessage({ type: "RECORD_WORD", word });
+  setVocabCallback((word, context) => {
+    chrome.runtime.sendMessage({ type: "RECORD_WORD", word, context });
   });
 
   await renderRecentFiles(els);

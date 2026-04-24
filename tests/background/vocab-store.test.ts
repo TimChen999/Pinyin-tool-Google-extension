@@ -4,9 +4,17 @@ import {
   getAllVocab,
   clearVocab,
   removeWord,
+  removeExample,
+  setExampleTranslation,
   updateFlashcardResult,
+  importVocab,
 } from "../../src/background/vocab-store";
-import { MAX_VOCAB_ENTRIES, VOCAB_STOP_WORDS } from "../../src/shared/constants";
+import {
+  MAX_VOCAB_ENTRIES,
+  MAX_VOCAB_EXAMPLES,
+  VOCAB_STOP_WORDS,
+} from "../../src/shared/constants";
+import type { VocabEntry, VocabExample } from "../../src/shared/types";
 
 // ─── In-Memory Storage Backend ──────────────────────────────────────
 // vitest-chrome-mv3 provides bare vi.fn() stubs for chrome.storage.local,
@@ -324,6 +332,238 @@ describe("vocab-store", () => {
 
       const vocab = await getAllVocab();
       expect(vocab).toHaveLength(0);
+    });
+  });
+
+  // ─── Example sentences ────────────────────────────────────────
+
+  describe("examples on recordWords", () => {
+    const exampleA: VocabExample = {
+      sentence: "我昨天去银行取钱了。",
+      capturedAt: 1700000000000,
+    };
+    const exampleB: VocabExample = {
+      sentence: "这家银行很大。",
+      capturedAt: 1700000001000,
+    };
+    const exampleC: VocabExample = {
+      sentence: "他在银行工作。",
+      capturedAt: 1700000002000,
+    };
+
+    it("attaches the example to a freshly recorded word", async () => {
+      await recordWords([sampleWords[0]], exampleA);
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      expect(bank.examples).toHaveLength(1);
+      expect(bank.examples![0].sentence).toBe(exampleA.sentence);
+    });
+
+    it("appends a second example into the open slot", async () => {
+      await recordWords([sampleWords[0]], exampleA);
+      await recordWords([sampleWords[0]], exampleB);
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      expect(bank.examples).toHaveLength(2);
+      expect(bank.examples!.map((e) => e.sentence)).toEqual([
+        exampleA.sentence,
+        exampleB.sentence,
+      ]);
+    });
+
+    it("drops a third capture when both slots are full (no auto-replace)", async () => {
+      await recordWords([sampleWords[0]], exampleA);
+      await recordWords([sampleWords[0]], exampleB);
+      await recordWords([sampleWords[0]], exampleC);
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      expect(bank.examples).toHaveLength(MAX_VOCAB_EXAMPLES);
+      expect(bank.examples!.map((e) => e.sentence)).toEqual([
+        exampleA.sentence,
+        exampleB.sentence,
+      ]);
+    });
+
+    it("does not duplicate an example with the same sentence", async () => {
+      await recordWords([sampleWords[0]], exampleA);
+      await recordWords([sampleWords[0]], { ...exampleA, capturedAt: 99999 });
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      expect(bank.examples).toHaveLength(1);
+    });
+
+    it("does not attach an example to a stop-word entry", async () => {
+      await recordWords(
+        [{ chars: "的", pinyin: "de", definition: "particle" }],
+        exampleA,
+      );
+      const vocab = await getAllVocab();
+      expect(vocab).toHaveLength(0);
+    });
+
+    it("only attaches the example to the first non-stop word in a batch", async () => {
+      await recordWords(
+        [
+          { chars: "的", pinyin: "de", definition: "particle" },
+          sampleWords[0],
+          sampleWords[1],
+        ],
+        exampleA,
+      );
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      const work = vocab.find((v) => v.chars === "工作")!;
+      expect(bank.examples).toHaveLength(1);
+      expect(work.examples ?? []).toHaveLength(0);
+    });
+  });
+
+  describe("removeExample", () => {
+    const exA: VocabExample = { sentence: "A 银行 句。", capturedAt: 1 };
+    const exB: VocabExample = { sentence: "B 银行 句。", capturedAt: 2 };
+
+    it("removes a single slot without touching the other example", async () => {
+      await recordWords([sampleWords[0]], exA);
+      await recordWords([sampleWords[0]], exB);
+      await removeExample("银行", 0);
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      expect(bank.examples).toHaveLength(1);
+      expect(bank.examples![0].sentence).toBe(exB.sentence);
+    });
+
+    it("preserves all non-example fields on the entry", async () => {
+      await recordWords([sampleWords[0]], exA);
+      await updateFlashcardResult("银行", true);
+      await removeExample("银行", 0);
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      expect(bank.examples ?? []).toHaveLength(0);
+      expect(bank.totalReviews).toBe(1);
+      expect(bank.totalCorrect).toBe(1);
+      expect(bank.pinyin).toBe("yín háng");
+    });
+
+    it("is a no-op for an unknown word", async () => {
+      await recordWords(sampleWords);
+      await expect(removeExample("不存在", 0)).resolves.not.toThrow();
+    });
+
+    it("is a no-op for an out-of-range index", async () => {
+      await recordWords([sampleWords[0]], exA);
+      await removeExample("银行", 5);
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      expect(bank.examples).toHaveLength(1);
+    });
+  });
+
+  describe("setExampleTranslation", () => {
+    const exA: VocabExample = { sentence: "A 银行 句。", capturedAt: 1 };
+    const exB: VocabExample = { sentence: "B 银行 句。", capturedAt: 2 };
+
+    it("attaches a translation to the targeted example only", async () => {
+      await recordWords([sampleWords[0]], exA);
+      await recordWords([sampleWords[0]], exB);
+      await setExampleTranslation("银行", 1, "Sentence B translated.");
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      expect(bank.examples![0].translation).toBeUndefined();
+      expect(bank.examples![1].translation).toBe("Sentence B translated.");
+    });
+
+    it("overwrites an existing translation on the same slot", async () => {
+      await recordWords([sampleWords[0]], exA);
+      await setExampleTranslation("银行", 0, "first");
+      await setExampleTranslation("银行", 0, "second");
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      expect(bank.examples![0].translation).toBe("second");
+    });
+
+    it("is a no-op for an unknown word", async () => {
+      await recordWords(sampleWords);
+      await expect(
+        setExampleTranslation("不存在", 0, "x"),
+      ).resolves.not.toThrow();
+    });
+
+    it("is a no-op for an out-of-range index", async () => {
+      await recordWords([sampleWords[0]], exA);
+      await setExampleTranslation("银行", 9, "x");
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      expect(bank.examples![0].translation).toBeUndefined();
+    });
+  });
+
+  describe("importVocab merges examples", () => {
+    function makeImported(
+      chars: string,
+      examples: VocabExample[],
+    ): VocabEntry {
+      return {
+        chars,
+        pinyin: "test",
+        definition: "test",
+        count: 1,
+        firstSeen: 1,
+        lastSeen: 2,
+        wrongStreak: 0,
+        totalReviews: 0,
+        totalCorrect: 0,
+        examples,
+      };
+    }
+
+    it("round-trips examples for a brand-new word", async () => {
+      const ex: VocabExample = {
+        sentence: "导入的句子。",
+        translation: "Imported sentence.",
+        capturedAt: 100,
+      };
+      await importVocab([makeImported("新词", [ex])]);
+      const vocab = await getAllVocab();
+      const entry = vocab.find((v) => v.chars === "新词")!;
+      expect(entry.examples).toHaveLength(1);
+      expect(entry.examples![0].translation).toBe("Imported sentence.");
+    });
+
+    it("dedupes by sentence when merging into an existing word", async () => {
+      const existing: VocabExample = { sentence: "共享句。", capturedAt: 1 };
+      await recordWords([sampleWords[0]], existing);
+      await importVocab([
+        makeImported("银行", [
+          { sentence: "共享句。", translation: "from import", capturedAt: 9 },
+          { sentence: "新句子。", capturedAt: 10 },
+        ]),
+      ]);
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      expect(bank.examples).toHaveLength(2);
+      const sentences = bank.examples!.map((e) => e.sentence);
+      expect(sentences).toContain("共享句。");
+      expect(sentences).toContain("新句子。");
+      // Existing entry kept (no translation overwrite from import).
+      const shared = bank.examples!.find((e) => e.sentence === "共享句。")!;
+      expect(shared.translation).toBeUndefined();
+    });
+
+    it("caps merged examples at MAX_VOCAB_EXAMPLES", async () => {
+      const existing: VocabExample = { sentence: "first.", capturedAt: 1 };
+      await recordWords([sampleWords[0]], existing);
+      await importVocab([
+        makeImported("银行", [
+          { sentence: "second.", capturedAt: 2 },
+          { sentence: "third.", capturedAt: 3 },
+          { sentence: "fourth.", capturedAt: 4 },
+        ]),
+      ]);
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      expect(bank.examples).toHaveLength(MAX_VOCAB_EXAMPLES);
+      // Existing-first ordering -> "first." stays in slot 0.
+      expect(bank.examples![0].sentence).toBe("first.");
     });
   });
 });

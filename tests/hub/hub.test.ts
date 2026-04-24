@@ -69,7 +69,7 @@ function buildHubDOM(): void {
       <div id="vocab-list" class="vocab-list"></div>
     </div>
 
-    <div id="tab-flashcards" class="hub-tab-content hidden">
+      <div id="tab-flashcards" class="hub-tab-content hidden">
       <div id="fc-setup" class="fc-setup">
         <h2>Practice your vocabulary</h2>
         <p class="fc-prompt">How many cards?</p>
@@ -93,6 +93,7 @@ function buildHubDOM(): void {
           <div id="fc-answer" class="fc-answer hidden">
             <div id="fc-pinyin" class="fc-pinyin"></div>
             <div id="fc-definition" class="fc-definition"></div>
+            <div id="fc-example" class="fc-example hidden"></div>
           </div>
         </div>
         <div id="fc-actions" class="fc-actions">
@@ -488,6 +489,318 @@ describe("hub page", () => {
 
       const overlays = document.querySelectorAll(".vocab-card-overlay");
       expect(overlays).toHaveLength(1);
+    });
+  });
+
+  // ─── Vocab card examples ───────────────────────────────────────
+
+  describe("vocab card examples", () => {
+    const wordWithNoExamples: VocabEntry = {
+      ...sampleVocab[0],
+      examples: undefined,
+    };
+    const wordWithOneExample: VocabEntry = {
+      ...sampleVocab[0],
+      examples: [
+        { sentence: "我去银行存钱。", translation: "I go to the bank.", capturedAt: 1 },
+      ],
+    };
+    const wordWithTwoExamples: VocabEntry = {
+      ...sampleVocab[0],
+      examples: [
+        { sentence: "我去银行存钱。", translation: "I go to the bank.", capturedAt: 1 },
+        { sentence: "银行今天关门。", capturedAt: 2 },
+      ],
+    };
+
+    it("renders no examples section when entry has no examples", async () => {
+      mockedGetAllVocab.mockResolvedValue([wordWithNoExamples]);
+      await loadHub();
+
+      const row = vocabList().querySelector(".vocab-row") as HTMLDivElement;
+      row.click();
+
+      // Wait a tick for the async examples-enrichment pass.
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(document.querySelector(".vocab-card-examples")).toBeNull();
+    });
+
+    it("renders a single example with translation", async () => {
+      mockedGetAllVocab.mockResolvedValue([wordWithOneExample]);
+      await loadHub();
+
+      const row = vocabList().querySelector(".vocab-row") as HTMLDivElement;
+      row.click();
+
+      await vi.waitFor(() => {
+        expect(document.querySelectorAll(".vocab-example")).toHaveLength(1);
+      });
+
+      const heading = document.querySelector(".vocab-card-examples-heading")!;
+      expect(heading.textContent).toBe("Example");
+      const translation = document.querySelector(".vocab-example-translation")!;
+      expect(translation.textContent).toBe("I go to the bank.");
+      // Target word is highlighted by attaching .vocab-example-target to
+      // the <ruby> element. The visible characters live in a dedicated
+      // base span so we can address them without picking up the <rt>
+      // pinyin annotation in the same textContent.
+      const target = document.querySelector(".vocab-example-target")!;
+      expect(target.tagName.toLowerCase()).toBe("ruby");
+      expect(target.querySelector(".vocab-example-ruby-base")!.textContent).toBe("银行");
+      expect(target.querySelector("rt")!.textContent).toBeTruthy();
+    });
+
+    it("renders two examples and pluralizes the heading", async () => {
+      mockedGetAllVocab.mockResolvedValue([wordWithTwoExamples]);
+      await loadHub();
+
+      const row = vocabList().querySelector(".vocab-row") as HTMLDivElement;
+      row.click();
+
+      await vi.waitFor(() => {
+        expect(document.querySelectorAll(".vocab-example")).toHaveLength(2);
+      });
+
+      const heading = document.querySelector(".vocab-card-examples-heading")!;
+      expect(heading.textContent).toBe("Examples");
+    });
+
+    it("clicking X sends REMOVE_EXAMPLE and re-renders the card", async () => {
+      const oneLeftAfterRemoval: VocabEntry = {
+        ...wordWithTwoExamples,
+        examples: [wordWithTwoExamples.examples![1]],
+      };
+      mockedGetAllVocab.mockResolvedValue([wordWithTwoExamples]);
+      const sendMessageSpy = vi.fn().mockResolvedValue(undefined);
+      chrome.runtime.sendMessage = sendMessageSpy as unknown as typeof chrome.runtime.sendMessage;
+      await loadHub();
+
+      const row = vocabList().querySelector(".vocab-row") as HTMLDivElement;
+      row.click();
+
+      await vi.waitFor(() => {
+        expect(document.querySelectorAll(".vocab-example-x")).toHaveLength(2);
+      });
+
+      mockedGetAllVocab.mockResolvedValue([oneLeftAfterRemoval]);
+      const xBtn = document.querySelectorAll(".vocab-example-x")[0] as HTMLButtonElement;
+      xBtn.click();
+
+      await vi.waitFor(() => {
+        expect(sendMessageSpy).toHaveBeenCalledWith({
+          type: "REMOVE_EXAMPLE",
+          chars: "银行",
+          index: 0,
+        });
+      });
+
+      await vi.waitFor(() => {
+        expect(document.querySelectorAll(".vocab-example")).toHaveLength(1);
+      });
+    });
+
+    it("renders a disabled Translate button when AI is unavailable", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ llmEnabled: false }),
+      );
+      mockedGetAllVocab.mockResolvedValue([wordWithTwoExamples]);
+      await loadHub();
+
+      const row = vocabList().querySelector(".vocab-row") as HTMLDivElement;
+      row.click();
+
+      await vi.waitFor(() => {
+        expect(document.querySelector(".vocab-example-translate-btn")).not.toBeNull();
+      });
+
+      const btn = document.querySelector(".vocab-example-translate-btn") as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+    });
+
+    it("Translate button sends ADD_EXAMPLE_TRANSLATION when AI is available", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ llmEnabled: true, apiKey: "test-key" }),
+      );
+      mockedGetAllVocab.mockResolvedValue([wordWithTwoExamples]);
+      const sendMessageSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        translation: "The bank is closed today.",
+      });
+      chrome.runtime.sendMessage = sendMessageSpy as unknown as typeof chrome.runtime.sendMessage;
+      await loadHub();
+
+      const row = vocabList().querySelector(".vocab-row") as HTMLDivElement;
+      row.click();
+
+      await vi.waitFor(() => {
+        expect(document.querySelector(".vocab-example-translate-btn")).not.toBeNull();
+      });
+
+      const btn = document.querySelector(".vocab-example-translate-btn") as HTMLButtonElement;
+      expect(btn.disabled).toBe(false);
+
+      mockedGetAllVocab.mockResolvedValue([
+        {
+          ...wordWithTwoExamples,
+          examples: [
+            wordWithTwoExamples.examples![0],
+            { ...wordWithTwoExamples.examples![1], translation: "The bank is closed today." },
+          ],
+        },
+      ]);
+      btn.click();
+
+      await vi.waitFor(() => {
+        expect(sendMessageSpy).toHaveBeenCalledWith({
+          type: "ADD_EXAMPLE_TRANSLATION",
+          chars: "银行",
+          index: 1,
+        });
+      });
+    });
+  });
+
+  // ─── Flashcard examples on flip ────────────────────────────────
+
+  describe("flashcard example on flip", () => {
+    const wordWithExample: VocabEntry = {
+      chars: "银行",
+      pinyin: "yín háng",
+      definition: "bank",
+      count: 1,
+      firstSeen: 1000,
+      lastSeen: 5000,
+      wrongStreak: 0,
+      totalReviews: 0,
+      totalCorrect: 0,
+      examples: [
+        { sentence: "我去银行存钱。", translation: "I go to the bank.", capturedAt: 1 },
+      ],
+    };
+
+    async function startSession(vocab: VocabEntry[]) {
+      mockedGetAllVocab.mockResolvedValue([...vocab]);
+      mockedUpdateResult.mockResolvedValue(undefined);
+      await loadHub();
+      await switchToFlashcards();
+      const startBtn = document.getElementById("fc-start") as HTMLButtonElement;
+      startBtn.click();
+      await vi.waitFor(() => {
+        expect(document.getElementById("fc-session")!.classList.contains("hidden")).toBe(false);
+      });
+    }
+
+    it("populates fc-example with the first example sentence on flip", async () => {
+      await startSession([wordWithExample]);
+
+      const flipBtn = document.getElementById("fc-flip") as HTMLButtonElement;
+      flipBtn.click();
+
+      await vi.waitFor(() => {
+        const example = document.getElementById("fc-example")!;
+        expect(example.classList.contains("hidden")).toBe(false);
+        expect(example.querySelector(".fc-example-sentence")).not.toBeNull();
+      });
+
+      const trans = document.querySelector(".fc-example-translation")!;
+      expect(trans.textContent).toBe("I go to the bank.");
+    });
+
+    it("hides fc-example when the card has no examples", async () => {
+      const noExample: VocabEntry = { ...wordWithExample, examples: [] };
+      await startSession([noExample]);
+
+      const flipBtn = document.getElementById("fc-flip") as HTMLButtonElement;
+      flipBtn.click();
+
+      // Give renderFlashcardExample a tick to settle.
+      await new Promise((r) => setTimeout(r, 20));
+
+      const example = document.getElementById("fc-example")!;
+      expect(example.classList.contains("hidden")).toBe(true);
+    });
+
+    it("shows a Translate button when example has no translation", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ llmEnabled: true, apiKey: "test-key" }),
+      );
+      const untranslated: VocabEntry = {
+        ...wordWithExample,
+        examples: [{ sentence: "我去银行存钱。", capturedAt: 1 }],
+      };
+      await startSession([untranslated]);
+
+      const flipBtn = document.getElementById("fc-flip") as HTMLButtonElement;
+      flipBtn.click();
+
+      await vi.waitFor(() => {
+        expect(document.querySelector(".fc-example-translate-btn")).not.toBeNull();
+      });
+
+      const btn = document.querySelector(".fc-example-translate-btn") as HTMLButtonElement;
+      expect(btn.disabled).toBe(false);
+    });
+
+    it("Translate button on flashcard is disabled when AI is unavailable", async () => {
+      chrome.storage.sync.get.mockImplementation(() =>
+        Promise.resolve({ llmEnabled: false }),
+      );
+      const untranslated: VocabEntry = {
+        ...wordWithExample,
+        examples: [{ sentence: "我去银行存钱。", capturedAt: 1 }],
+      };
+      await startSession([untranslated]);
+
+      const flipBtn = document.getElementById("fc-flip") as HTMLButtonElement;
+      flipBtn.click();
+
+      await vi.waitFor(() => {
+        expect(document.querySelector(".fc-example-translate-btn")).not.toBeNull();
+      });
+
+      const btn = document.querySelector(".fc-example-translate-btn") as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+    });
+
+    it("clears the example block between cards", async () => {
+      // Both cards carry an example so buildSession's shuffle order
+      // doesn't determine whether fc-example renders -- it always
+      // does. The assertion focuses on the *reset* behavior between
+      // cards: after answering, the previous card's example markup
+      // must not bleed into the next card before the user flips.
+      const wordA: VocabEntry = {
+        ...wordWithExample,
+        chars: "银行",
+        examples: [{ sentence: "我去银行存钱。", translation: "Go to bank.", capturedAt: 1 }],
+      };
+      const wordB: VocabEntry = {
+        ...wordWithExample,
+        chars: "工作",
+        pinyin: "gōng zuò",
+        definition: "to work",
+        examples: [{ sentence: "他在工作。", translation: "He is working.", capturedAt: 2 }],
+      };
+      await startSession([wordA, wordB]);
+
+      const flipBtn = document.getElementById("fc-flip") as HTMLButtonElement;
+      const rightBtn = document.getElementById("fc-right") as HTMLButtonElement;
+      flipBtn.click();
+
+      await vi.waitFor(() => {
+        expect(document.getElementById("fc-example")!.classList.contains("hidden")).toBe(false);
+      });
+
+      rightBtn.click();
+
+      // showCard() runs synchronously inside answerCard after the
+      // updateFlashcardResult await -- the slot must be re-hidden
+      // and emptied before the next flip surfaces a new example.
+      await vi.waitFor(() => {
+        const slot = document.getElementById("fc-example")!;
+        expect(slot.classList.contains("hidden")).toBe(true);
+        expect(slot.innerHTML).toBe("");
+      });
     });
   });
 

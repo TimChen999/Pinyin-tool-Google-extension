@@ -16,7 +16,7 @@
  */
 
 import { convertToPinyin } from "./pinyin-service";
-import { queryLLM, type LLMResult } from "./llm-client";
+import { queryLLM, translateSentence, type LLMResult } from "./llm-client";
 import {
   hashText,
   getFromCache,
@@ -25,7 +25,14 @@ import {
   saveErrorToCache,
   evictExpiredEntries,
 } from "./cache";
-import { recordWords, removeWord } from "./vocab-store";
+import {
+  recordWords,
+  removeWord,
+  removeExample,
+  setExampleTranslation,
+  getAllVocab,
+} from "./vocab-store";
+import { isUsableExample, trimSentenceForExample } from "../shared/example-quality";
 import {
   DEFAULT_SETTINGS,
   PROVIDER_PRESETS,
@@ -38,6 +45,7 @@ import type {
   LLMConfig,
   PinyinRequest,
   PinyinResponseLocal,
+  VocabExample,
 } from "../shared/types";
 
 // ─── In-flight Request Coalescing ──────────────────────────────────
@@ -244,6 +252,122 @@ function dedupedQueryLLM(
   return p;
 }
 
+// ─── Vocab Recording + Example Sentences ──────────────────────────
+
+/**
+ * RECORD_WORD handler. Persists the word, runs the captured page
+ * context through the quality gate, attaches it as an example slot
+ * when it passes, and -- if AI Translations is configured -- fires
+ * an off-thread sentence translation that backfills the example's
+ * translation field via setExampleTranslation.
+ *
+ * The auto-translate path is best-effort: if the LLM call fails the
+ * sentence is still kept (translation can be filled later via the
+ * "Translate" button in the vocab card / flashcard flip view). It
+ * also short-circuits when the example already carries a translation
+ * (e.g. a duplicate sentence from a prior save), so a user-attached
+ * translation is never silently overwritten.
+ */
+async function handleRecordWord(
+  word: { chars: string; pinyin: string; definition: string },
+  context: string,
+): Promise<void> {
+  const cleaned = context.trim();
+
+  let example: VocabExample | undefined;
+  if (cleaned && isUsableExample(word.chars, cleaned)) {
+    // Quality gate scores the original captured context; we only trim
+    // the sentence we actually persist so the stored example reads
+    // like one thought instead of a paragraph.
+    const trimmed = trimSentenceForExample(cleaned, word.chars);
+    example = { sentence: trimmed, capturedAt: Date.now() };
+  }
+
+  await recordWords([{ ...word }], example);
+
+  if (!example) return;
+
+  const settings = await getSettings();
+  if (!settings.llmEnabled) return;
+
+  const preset = PROVIDER_PRESETS[settings.provider];
+  if (preset.requiresApiKey && !settings.apiKey) return;
+
+  const all = await getAllVocab();
+  const entry = all.find((e) => e.chars === word.chars);
+  const idx = entry?.examples?.findIndex((e) => e.sentence === example!.sentence) ?? -1;
+  if (idx < 0) return;
+  if (entry!.examples![idx].translation) return;
+
+  const config: LLMConfig = {
+    provider: settings.provider,
+    apiKey: settings.apiKey,
+    baseUrl: settings.baseUrl,
+    model: settings.model,
+    maxTokens: LLM_MAX_TOKENS,
+    temperature: LLM_TEMPERATURE,
+  };
+
+  const result = await translateSentence(example.sentence, config);
+  if (!result.ok) return;
+
+  await setExampleTranslation(word.chars, idx, result.translation);
+}
+
+/**
+ * ADD_EXAMPLE_TRANSLATION handler. Looks up the targeted example by
+ * (chars, index), translates its sentence with the user's configured
+ * LLM, and stores the result. Replies via sendResponse so the hub UI
+ * (vocab card / flashcard flip view) can refresh inline without a
+ * separate poll.
+ *
+ * Reply shape: { ok: true, translation } on success,
+ *              { ok: false, error: string } otherwise.
+ */
+async function handleAddExampleTranslation(
+  chars: string,
+  index: number,
+  sendResponse: (response: unknown) => void,
+): Promise<void> {
+  const settings = await getSettings();
+  if (!settings.llmEnabled) {
+    sendResponse({ ok: false, error: "AI Translations is disabled in settings." });
+    return;
+  }
+
+  const preset = PROVIDER_PRESETS[settings.provider];
+  if (preset.requiresApiKey && !settings.apiKey) {
+    sendResponse({ ok: false, error: "API key required." });
+    return;
+  }
+
+  const all = await getAllVocab();
+  const entry = all.find((e) => e.chars === chars);
+  const example = entry?.examples?.[index];
+  if (!example) {
+    sendResponse({ ok: false, error: "Example not found." });
+    return;
+  }
+
+  const config: LLMConfig = {
+    provider: settings.provider,
+    apiKey: settings.apiKey,
+    baseUrl: settings.baseUrl,
+    model: settings.model,
+    maxTokens: LLM_MAX_TOKENS,
+    temperature: LLM_TEMPERATURE,
+  };
+
+  const result = await translateSentence(example.sentence, config);
+  if (!result.ok) {
+    sendResponse({ ok: false, error: result.error.message });
+    return;
+  }
+
+  await setExampleTranslation(chars, index, result.translation);
+  sendResponse({ ok: true, translation: result.translation });
+}
+
 // ─── OCR Message Handling ──────────────────────────────────────────
 
 /**
@@ -252,16 +376,36 @@ function dedupedQueryLLM(
  * they follow a different async pattern and don't use sendResponse.
  */
 chrome.runtime.onMessage.addListener(
-  (message: { type: string; [key: string]: unknown }, sender: chrome.runtime.MessageSender) => {
+  (
+    message: { type: string; [key: string]: unknown },
+    sender: chrome.runtime.MessageSender,
+    sendResponse: (response: unknown) => void,
+  ) => {
     if (message.type === "RECORD_WORD") {
       const word = message.word as { chars: string; pinyin: string; definition: string };
-      recordWords([word]);
+      const context = typeof message.context === "string" ? message.context : "";
+      handleRecordWord(word, context);
       return;
     }
 
     if (message.type === "REMOVE_WORD") {
       removeWord(message.chars as string);
       return;
+    }
+
+    if (message.type === "REMOVE_EXAMPLE") {
+      const chars = message.chars as string;
+      const index = message.index as number;
+      removeExample(chars, index);
+      return;
+    }
+
+    if (message.type === "ADD_EXAMPLE_TRANSLATION") {
+      const chars = message.chars as string;
+      const index = message.index as number;
+      handleAddExampleTranslation(chars, index, sendResponse);
+      // Keep the message channel open for the async response.
+      return true;
     }
 
     if (message.type === "OCR_START") {

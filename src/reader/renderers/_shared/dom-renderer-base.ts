@@ -38,6 +38,7 @@ import type {
   BookmarkAnchor,
 } from "../../reader-types";
 import { resolveFontFamily } from "./typography";
+import { windowAroundAnchor } from "../../../shared/chinese-detect";
 
 const SCROLL_PAGE_FRACTION = 0.9;
 const ANCHOR_CONTEXT_CHARS = 20;
@@ -117,10 +118,10 @@ export abstract class DomRendererBase implements FormatRenderer {
     return String(this.scrollEl?.scrollTop ?? 0);
   }
 
-  getVisibleText(): string {
+  getVisibleText(anchor?: string): string {
     if (!this.contentEl) return "";
     const text = this.contentEl.textContent ?? "";
-    return text.length > 500 ? text.slice(0, 500) : text;
+    return windowAroundAnchor(text, anchor ?? "");
   }
 
   /**
