@@ -69,8 +69,8 @@ function createMockBook(mockRendition: ReturnType<typeof createMockRendition>) {
     },
     spine: {
       get: vi.fn((idx: number) => spineItems[idx] ?? null),
-      each: vi.fn((fn: Function) => {
-        spineItems.forEach(fn);
+      each: vi.fn((fn: (...args: unknown[]) => unknown) => {
+        spineItems.forEach(fn as Parameters<typeof spineItems.forEach>[0]);
       }),
     },
     coverUrl: vi.fn().mockResolvedValue("blob:cover-url"),

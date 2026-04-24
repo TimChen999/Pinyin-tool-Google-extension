@@ -8,8 +8,8 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "rootDir": ".",
-    "types": ["chrome"],
-    "lib": ["ES2020", "DOM", "DOM.Iterable"]
+    "types": ["chrome", "vitest/globals"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"]
 }

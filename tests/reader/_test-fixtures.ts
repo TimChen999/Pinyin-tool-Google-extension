@@ -42,7 +42,10 @@ export function makeBinaryFile(
   type = "application/octet-stream",
 ): File {
   const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  const blob = new Blob([data], { type });
+  // Cast handles a TypeScript >=5.7 strictness change around
+  // Uint8Array<ArrayBufferLike> not unifying with ArrayBufferView<ArrayBuffer>.
+  // The runtime accepts either freely.
+  const blob = new Blob([data as BlobPart], { type });
   const file = new File([blob], name, { type });
   patchFile(file, blob, null);
   return file;

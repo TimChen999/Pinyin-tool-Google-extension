@@ -12,6 +12,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mock } from "../test-helpers";
 
 vi.mock("../../src/reader/reader", () => ({
   initReader: vi.fn().mockResolvedValue(undefined),
@@ -125,7 +126,7 @@ function pane(tab: string): HTMLElement {
 describe("library page", () => {
   beforeEach(() => {
     buildLibraryDOM();
-    chrome.storage.sync.get.mockImplementation(() => Promise.resolve({}));
+    mock(chrome.storage.sync.get).mockImplementation(() => Promise.resolve({}));
     mockedInitReader.mockReset().mockResolvedValue(undefined);
     mockedCaptureReaderState.mockReset();
     mockedRestoreReaderPosition.mockReset().mockResolvedValue(undefined);
@@ -152,7 +153,7 @@ describe("library page", () => {
     });
 
     it("applies the stored theme to body[data-theme]", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ theme: "dark" }),
       );
 
@@ -182,7 +183,7 @@ describe("library page", () => {
     });
 
     it("applies sepia from readerSettings even when shared theme is light", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({
           theme: "light",
           readerSettings: { theme: "sepia" },
@@ -197,7 +198,7 @@ describe("library page", () => {
     });
 
     it("ignores non-sepia readerSettings.theme and uses shared instead", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({
           theme: "dark",
           readerSettings: { theme: "light" },
@@ -213,7 +214,7 @@ describe("library page", () => {
     });
 
     it("still passes legacy sepia in the shared key through unchanged", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ theme: "sepia" }),
       );
 
@@ -244,12 +245,12 @@ describe("library page", () => {
       const listeners: Array<
         (changes: Record<string, chrome.storage.StorageChange>, area: string) => void
       > = [];
-      chrome.storage.onChanged.addListener.mockImplementation(
+      mock(chrome.storage.onChanged.addListener).mockImplementation(
         (l: (typeof listeners)[number]) => {
           listeners.push(l);
         },
       );
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ theme: "light" }),
       );
 
@@ -258,7 +259,7 @@ describe("library page", () => {
       expect(document.body.getAttribute("data-theme")).toBe("light");
 
       // Popup writes a new theme; library should re-resolve and update body.
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ theme: "dark" }),
       );
       for (const l of listeners) {

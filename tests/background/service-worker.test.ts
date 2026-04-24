@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DEFAULT_SETTINGS } from "../../src/shared/constants";
 import type { PinyinRequest, PinyinResponseLocal } from "../../src/shared/types";
+import { mock } from "../test-helpers";
 
 vi.mock("../../src/background/vocab-store", () => ({
   recordWords: vi.fn(() => Promise.resolve()),
@@ -70,9 +71,9 @@ describe("service-worker", () => {
   beforeEach(() => {
     ensureCommandsMock();
     // Mock chrome.storage.sync.get to return empty (=> DEFAULT_SETTINGS)
-    chrome.storage.sync.get.mockImplementation(() => Promise.resolve({}));
+    mock(chrome.storage.sync.get).mockImplementation(() => Promise.resolve({}));
     // Mock chrome.contextMenus.create to be a no-op
-    chrome.contextMenus.create.mockImplementation(() => 1);
+    mock(chrome.contextMenus.create).mockImplementation(() => 1);
   });
 
   describe("message handling", () => {
@@ -114,7 +115,7 @@ describe("service-worker", () => {
     });
 
     it("returns words with correct pinyin style from settings", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ pinyinStyle: "toneNumbers" }),
       );
 
@@ -182,7 +183,7 @@ describe("service-worker", () => {
 
   describe("vocab recording", () => {
     it("does not auto-record words on cache hit", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ llmEnabled: true, apiKey: "test-key" }),
       );
 
@@ -208,7 +209,7 @@ describe("service-worker", () => {
     });
 
     it("does not auto-record words after successful LLM response", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ llmEnabled: true, apiKey: "test-key" }),
       );
 
@@ -408,7 +409,7 @@ describe("service-worker", () => {
 
   describe("getSettings", () => {
     it("returns DEFAULT_SETTINGS when storage is empty", async () => {
-      chrome.storage.sync.get.mockImplementation(() => Promise.resolve({}));
+      mock(chrome.storage.sync.get).mockImplementation(() => Promise.resolve({}));
 
       const { getSettings } = await loadServiceWorker();
       const settings = await getSettings();
@@ -417,7 +418,7 @@ describe("service-worker", () => {
     });
 
     it("merges stored settings with defaults", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ pinyinStyle: "none", fontSize: 20 }),
       );
 

@@ -16,6 +16,7 @@
 
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, afterAll } from "vitest";
 import { DEFAULT_SETTINGS, MAX_SELECTION_LENGTH, DEBOUNCE_MS } from "../../src/shared/constants";
+import { mock } from "../test-helpers";
 
 // ─── Mock overlay module so we can spy on calls without DOM side effects ──
 const mockShowOverlay = vi.fn();
@@ -90,7 +91,7 @@ function fakeSelection(
     selectAllChildren: vi.fn(),
     setBaseAndExtent: vi.fn(),
     setPosition: vi.fn(),
-    direction: "ltr" as SelectionDirection,
+    direction: "ltr",
   } as unknown as Selection;
 }
 
@@ -112,13 +113,13 @@ describe("content script", () => {
   // Load the content script once for all tests in this suite.
   // Its top-level listeners attach to `document` and `chrome.runtime`.
   beforeAll(async () => {
-    chrome.storage.sync.get.mockImplementation(
+    mock(chrome.storage.sync.get).mockImplementation(
       (_key: unknown, cb?: Function) => {
         if (cb) cb({});
         return Promise.resolve({});
       },
     );
-    chrome.storage.onChanged.addListener.mockImplementation((listener: typeof storageChangeListener) => {
+    mock(chrome.storage.onChanged.addListener).mockImplementation((listener: typeof storageChangeListener) => {
       storageChangeListener = listener;
     });
 
@@ -141,7 +142,7 @@ describe("content script", () => {
     mockShowTruncationNotice.mockClear();
     mockDismissOverlay.mockClear();
 
-    chrome.runtime.sendMessage.mockImplementation(
+    mock(chrome.runtime.sendMessage).mockImplementation(
       (_msg: unknown, cb?: Function) => {
         if (cb) {
           cb({
@@ -212,7 +213,7 @@ describe("content script", () => {
       document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
       vi.advanceTimersByTime(DEBOUNCE_MS + 50);
 
-      const sentMsg = chrome.runtime.sendMessage.mock.calls[0][0];
+      const sentMsg = mock(chrome.runtime.sendMessage).mock.calls[0][0];
       expect(sentMsg.text.length).toBe(MAX_SELECTION_LENGTH);
     });
 
@@ -560,8 +561,8 @@ describe("content script", () => {
       // which fake timers disrupt for promise resolution tests.
       vi.useRealTimers();
       // A fresh sendMessage spy per test so call counts are clean.
-      chrome.runtime.sendMessage.mockReset();
-      chrome.runtime.sendMessage.mockImplementation(() => Promise.resolve());
+      mock(chrome.runtime.sendMessage).mockReset();
+      mock(chrome.runtime.sendMessage).mockImplementation(() => Promise.resolve());
       await resetTranslatorCache();
     });
 
@@ -583,7 +584,7 @@ describe("content script", () => {
       await cb(word, "学"); // context too short to pass isUsableExample
 
       expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
-      const msg = chrome.runtime.sendMessage.mock.calls[0][0];
+      const msg = mock(chrome.runtime.sendMessage).mock.calls[0][0];
       expect(msg).toMatchObject({ type: "RECORD_WORD", word });
       expect(msg.example).toBeUndefined();
       // The gate short-circuited before we got near the Translator call.
@@ -606,13 +607,13 @@ describe("content script", () => {
       // SET_EXAMPLE_TRANSLATION once the on-device call resolved.
       expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(2);
 
-      const recordMsg = chrome.runtime.sendMessage.mock.calls[0][0];
+      const recordMsg = mock(chrome.runtime.sendMessage).mock.calls[0][0];
       expect(recordMsg.type).toBe("RECORD_WORD");
       expect(recordMsg.word).toEqual(word);
       expect(recordMsg.example).toMatchObject({ sentence: goodContext });
       expect(recordMsg.example.translation).toBeUndefined();
 
-      const setMsg = chrome.runtime.sendMessage.mock.calls[1][0];
+      const setMsg = mock(chrome.runtime.sendMessage).mock.calls[1][0];
       expect(setMsg).toMatchObject({
         type: "SET_EXAMPLE_TRANSLATION",
         chars: word.chars,
@@ -640,7 +641,7 @@ describe("content script", () => {
       // follow-up message. The user can re-trigger via the hub
       // Translate button later.
       expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
-      const recordMsg = chrome.runtime.sendMessage.mock.calls[0][0];
+      const recordMsg = mock(chrome.runtime.sendMessage).mock.calls[0][0];
       expect(recordMsg).toMatchObject({
         type: "RECORD_WORD",
         word,
@@ -655,7 +656,7 @@ describe("content script", () => {
       await cb(word, goodContext);
 
       expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
-      const recordMsg = chrome.runtime.sendMessage.mock.calls[0][0];
+      const recordMsg = mock(chrome.runtime.sendMessage).mock.calls[0][0];
       expect(recordMsg).toMatchObject({
         type: "RECORD_WORD",
         word,

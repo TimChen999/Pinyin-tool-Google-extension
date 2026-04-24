@@ -26,6 +26,7 @@ vi.mock("../../src/reader/file-handle-store", () => ({
 }));
 
 import { getFileHandle as mockGetFileHandle } from "../../src/reader/file-handle-store";
+import { mock } from "../test-helpers";
 import {
   DEFAULT_READER_SETTINGS,
   MAX_RECENT_FILES,
@@ -110,7 +111,7 @@ describe("reader", () => {
 
   describe("loadReaderSettings()", () => {
     it("returns default settings when nothing is stored", async () => {
-      chrome.storage.sync.get.mockImplementation(
+      mock(chrome.storage.sync.get).mockImplementation(
         (_keys: any, callback?: Function) => {
           const result = {};
           if (callback) callback(result);
@@ -123,7 +124,7 @@ describe("reader", () => {
     });
 
     it("merges stored settings with defaults", async () => {
-      chrome.storage.sync.get.mockImplementation(
+      mock(chrome.storage.sync.get).mockImplementation(
         (_keys: any, callback?: Function) => {
           const result = { readerSettings: { fontSize: 22, theme: "dark" } };
           if (callback) callback(result);
@@ -142,7 +143,7 @@ describe("reader", () => {
     it("round-trips a reading state", async () => {
       const stored: Record<string, any> = {};
 
-      chrome.storage.local.set.mockImplementation(
+      mock(chrome.storage.local.set).mockImplementation(
         (items: Record<string, any>, callback?: Function) => {
           Object.assign(stored, items);
           if (callback) callback();
@@ -150,7 +151,7 @@ describe("reader", () => {
         },
       );
 
-      chrome.storage.local.get.mockImplementation(
+      mock(chrome.storage.local.get).mockImplementation(
         (keys: any, callback?: Function) => {
           const key = typeof keys === "string" ? keys : Object.keys(keys)[0];
           const result = { [key]: stored[key] };
@@ -169,7 +170,7 @@ describe("reader", () => {
     });
 
     it("returns null for unknown file hash", async () => {
-      chrome.storage.local.get.mockImplementation(
+      mock(chrome.storage.local.get).mockImplementation(
         (_keys: any, callback?: Function) => {
           const result = {};
           if (callback) callback(result);
@@ -183,14 +184,14 @@ describe("reader", () => {
 
     it("round-trips a state carrying a lastWordAnchor", async () => {
       const stored: Record<string, any> = {};
-      chrome.storage.local.set.mockImplementation(
+      mock(chrome.storage.local.set).mockImplementation(
         (items: Record<string, any>, callback?: Function) => {
           Object.assign(stored, items);
           if (callback) callback();
           return Promise.resolve();
         },
       );
-      chrome.storage.local.get.mockImplementation(
+      mock(chrome.storage.local.get).mockImplementation(
         (keys: any, callback?: Function) => {
           const key = typeof keys === "string" ? keys : Object.keys(keys)[0];
           const result = { [key]: stored[key] };
@@ -220,7 +221,7 @@ describe("reader", () => {
 
   describe("getRecentFiles()", () => {
     it("returns empty array when no recent files exist", async () => {
-      chrome.storage.local.get.mockImplementation(
+      mock(chrome.storage.local.get).mockImplementation(
         (_keys: any, callback?: Function) => {
           const result = {};
           if (callback) callback(result);
@@ -235,7 +236,7 @@ describe("reader", () => {
     it("returns stored recent files", async () => {
       const files = [createReadingState("a"), createReadingState("b")];
 
-      chrome.storage.local.get.mockImplementation(
+      mock(chrome.storage.local.get).mockImplementation(
         (_keys: any, callback?: Function) => {
           const result = { reader_recent: files };
           if (callback) callback(result);
@@ -254,7 +255,7 @@ describe("reader", () => {
         reader_recent: [createReadingState("old")],
       };
 
-      chrome.storage.local.get.mockImplementation(
+      mock(chrome.storage.local.get).mockImplementation(
         (_keys: any, callback?: Function) => {
           const result = { reader_recent: stored.reader_recent ?? [] };
           if (callback) callback(result);
@@ -262,7 +263,7 @@ describe("reader", () => {
         },
       );
 
-      chrome.storage.local.set.mockImplementation(
+      mock(chrome.storage.local.set).mockImplementation(
         (items: Record<string, any>, callback?: Function) => {
           Object.assign(stored, items);
           if (callback) callback();
@@ -285,7 +286,7 @@ describe("reader", () => {
         ],
       };
 
-      chrome.storage.local.get.mockImplementation(
+      mock(chrome.storage.local.get).mockImplementation(
         (_keys: any, callback?: Function) => {
           const result = { reader_recent: stored.reader_recent ?? [] };
           if (callback) callback(result);
@@ -293,7 +294,7 @@ describe("reader", () => {
         },
       );
 
-      chrome.storage.local.set.mockImplementation(
+      mock(chrome.storage.local.set).mockImplementation(
         (items: Record<string, any>, callback?: Function) => {
           Object.assign(stored, items);
           if (callback) callback();
@@ -317,7 +318,7 @@ describe("reader", () => {
 
       let stored: Record<string, any> = { reader_recent: fullList };
 
-      chrome.storage.local.get.mockImplementation(
+      mock(chrome.storage.local.get).mockImplementation(
         (_keys: any, callback?: Function) => {
           const result = { reader_recent: stored.reader_recent ?? [] };
           if (callback) callback(result);
@@ -325,7 +326,7 @@ describe("reader", () => {
         },
       );
 
-      chrome.storage.local.set.mockImplementation(
+      mock(chrome.storage.local.set).mockImplementation(
         (items: Record<string, any>, callback?: Function) => {
           Object.assign(stored, items);
           if (callback) callback();
@@ -353,7 +354,7 @@ describe("reader", () => {
   describe("migrateThemeIfNeeded()", () => {
     function buildStorage(initial: Record<string, any>) {
       const stored: Record<string, any> = { ...initial };
-      chrome.storage.sync.get.mockImplementation((keys: any) => {
+      mock(chrome.storage.sync.get).mockImplementation((keys: any) => {
         if (Array.isArray(keys)) {
           const out: Record<string, any> = {};
           for (const k of keys) {
@@ -368,7 +369,7 @@ describe("reader", () => {
         }
         return Promise.resolve({ ...stored });
       });
-      chrome.storage.sync.set.mockImplementation((items: Record<string, any>) => {
+      mock(chrome.storage.sync.set).mockImplementation((items: Record<string, any>) => {
         Object.assign(stored, items);
         return Promise.resolve();
       });

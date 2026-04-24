@@ -14,6 +14,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { PROVIDER_PRESETS, DEFAULT_SETTINGS } from "../../src/shared/constants";
+import { mock } from "../test-helpers";
 
 vi.mock("../../src/background/vocab-store", () => ({
   getAllVocab: vi.fn().mockResolvedValue([]),
@@ -155,8 +156,8 @@ describe("popup settings", () => {
 
   beforeEach(() => {
     buildPopupDOM();
-    chrome.storage.sync.get.mockImplementation(() => Promise.resolve({}));
-    chrome.storage.sync.set.mockImplementation(() => Promise.resolve());
+    mock(chrome.storage.sync.get).mockImplementation(() => Promise.resolve({}));
+    mock(chrome.storage.sync.set).mockImplementation(() => Promise.resolve());
     fetchSpy = vi.fn().mockRejectedValue(new Error("fetch not mocked"));
     vi.stubGlobal("fetch", fetchSpy);
   });
@@ -170,7 +171,7 @@ describe("popup settings", () => {
 
   describe("loading settings", () => {
     it("populates form fields from chrome.storage.sync", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({
           provider: "gemini",
           apiKey: "my-gemini-key-12345",
@@ -210,7 +211,7 @@ describe("popup settings", () => {
     });
 
     it("loads overlayEnabled=false from storage", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ overlayEnabled: false }),
       );
 
@@ -309,7 +310,7 @@ describe("popup settings", () => {
         expect(chrome.storage.sync.set).toHaveBeenCalled(),
       );
 
-      const saved = chrome.storage.sync.set.mock.calls[0][0];
+      const saved = mock(chrome.storage.sync.set).mock.calls[0][0];
       expect(saved.provider).toBe("gemini");
       expect(saved.apiKey).toBe("AIza-test-key-valid-length");
     });
@@ -325,12 +326,12 @@ describe("popup settings", () => {
         expect(chrome.storage.sync.set).toHaveBeenCalled(),
       );
 
-      const saved = chrome.storage.sync.set.mock.calls[0][0];
+      const saved = mock(chrome.storage.sync.set).mock.calls[0][0];
       expect(saved.overlayEnabled).toBe(false);
     });
 
     it("persists overlayEnabled=true after a load+save round-trip", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ overlayEnabled: false, apiKey: "sk-valid-test-key-123" }),
       );
       await loadPopup();
@@ -343,7 +344,7 @@ describe("popup settings", () => {
         expect(chrome.storage.sync.set).toHaveBeenCalled(),
       );
 
-      const saved = chrome.storage.sync.set.mock.calls[0][0];
+      const saved = mock(chrome.storage.sync.set).mock.calls[0][0];
       expect(saved.overlayEnabled).toBe(true);
     });
 
@@ -511,7 +512,7 @@ describe("popup settings", () => {
       fetchSpy.mockImplementation(() =>
         ollamaModelsResponse(["phi3:mini", "gemma2:9b"]),
       );
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({
           provider: "ollama",
           baseUrl: "http://localhost:11434/v1",
@@ -571,7 +572,7 @@ describe("popup settings", () => {
 
   describe("AI Translations toggle group", () => {
     it("collapses #ai-config-fields on init when stored llmEnabled is false", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ llmEnabled: false }),
       );
 
@@ -582,7 +583,7 @@ describe("popup settings", () => {
     });
 
     it("expands #ai-config-fields on init when stored llmEnabled is true", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ llmEnabled: true }),
       );
 
@@ -592,7 +593,7 @@ describe("popup settings", () => {
     });
 
     it("expands fields when toggle flips on", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ llmEnabled: false }),
       );
 
@@ -606,7 +607,7 @@ describe("popup settings", () => {
     });
 
     it("preserves field values when toggled off then on (no clearing)", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({
           provider: "gemini",
           apiKey: "AIza-preserved-key-12345",
@@ -655,7 +656,7 @@ describe("popup settings", () => {
     });
 
     it("hides API key warning when toggle is off, even with empty key", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ llmEnabled: false, apiKey: "" }),
       );
 
@@ -675,7 +676,7 @@ describe("popup settings", () => {
     });
 
     it("re-shows API key warning when toggling back on while key is still empty", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ llmEnabled: false, apiKey: "" }),
       );
 
@@ -700,7 +701,7 @@ describe("popup settings", () => {
         expect(chrome.storage.sync.set).toHaveBeenCalled(),
       );
 
-      const saved = chrome.storage.sync.set.mock.calls[0][0];
+      const saved = mock(chrome.storage.sync.set).mock.calls[0][0];
       expect(saved.llmEnabled).toBe(false);
       expect(el.status.textContent).toBe("Settings saved.");
     });
@@ -775,7 +776,7 @@ describe("popup settings", () => {
 
   describe("theme application", () => {
     it("writes data-theme=light on body when stored theme is 'light'", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ theme: "light" }),
       );
 
@@ -785,7 +786,7 @@ describe("popup settings", () => {
     });
 
     it("writes data-theme=dark on body when stored theme is 'dark'", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ theme: "dark" }),
       );
 
@@ -797,7 +798,7 @@ describe("popup settings", () => {
     it("writes data-theme=sepia on body when stored theme is 'sepia'", async () => {
       // Sepia is now a selectable shared theme, not just a reader-
       // only override, so the popup must paint itself sepia too.
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ theme: "sepia" }),
       );
 
@@ -808,7 +809,7 @@ describe("popup settings", () => {
     });
 
     it("persists Sepia from the popup dropdown to the shared theme key", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ theme: "light", apiKey: "sk-valid-test-key-123" }),
       );
 
@@ -821,7 +822,7 @@ describe("popup settings", () => {
       await vi.waitFor(() =>
         expect(chrome.storage.sync.set).toHaveBeenCalled(),
       );
-      const saved = chrome.storage.sync.set.mock.calls[0][0];
+      const saved = mock(chrome.storage.sync.set).mock.calls[0][0];
       expect(saved.theme).toBe("sepia");
       expect(document.body.getAttribute("data-theme")).toBe("sepia");
     });
@@ -848,7 +849,7 @@ describe("popup settings", () => {
     });
 
     it("updates body[data-theme] live when the user changes the dropdown", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ theme: "light" }),
       );
 
@@ -862,7 +863,7 @@ describe("popup settings", () => {
     });
 
     it("re-applies theme after Save so the popup matches the saved value", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ theme: "light", apiKey: "sk-valid-test-key-123" }),
       );
 

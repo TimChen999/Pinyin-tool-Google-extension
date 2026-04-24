@@ -11,6 +11,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { VocabEntry } from "../../src/shared/types";
+import { mock } from "../test-helpers";
 
 vi.mock("../../src/background/vocab-store", () => ({
   getAllVocab: vi.fn(),
@@ -190,10 +191,10 @@ async function switchToFlashcards(): Promise<void> {
 describe("hub page", () => {
   beforeEach(() => {
     buildHubDOM();
-    chrome.storage.sync.get.mockImplementation(() => Promise.resolve({}));
-    chrome.storage.sync.set.mockImplementation(() => Promise.resolve());
-    chrome.tabs.create.mockImplementation(() => Promise.resolve({} as chrome.tabs.Tab));
-    chrome.runtime.getURL.mockImplementation((path: string) => `chrome-extension://test/${path}`);
+    mock(chrome.storage.sync.get).mockImplementation(() => Promise.resolve({}));
+    mock(chrome.storage.sync.set).mockImplementation(() => Promise.resolve());
+    mock(chrome.tabs.create).mockImplementation(() => Promise.resolve({} as chrome.tabs.Tab));
+    mock(chrome.runtime.getURL).mockImplementation((path: string) => `chrome-extension://test/${path}`);
     mockedGetAllVocab.mockReset();
     mockedClearVocab.mockReset();
     mockedRemoveWord.mockReset();
@@ -212,7 +213,7 @@ describe("hub page", () => {
 
   describe("theme", () => {
     it("applies theme from storage", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ theme: "dark" }),
       );
       mockedGetAllVocab.mockResolvedValue([]);
@@ -221,7 +222,7 @@ describe("hub page", () => {
     });
 
     it("collapses missing/auto theme to a concrete state via prefers-color-scheme", async () => {
-      chrome.storage.sync.get.mockImplementation(() => Promise.resolve({}));
+      mock(chrome.storage.sync.get).mockImplementation(() => Promise.resolve({}));
       mockedGetAllVocab.mockResolvedValue([]);
       await loadHub();
       // Hub now uses the shared resolveEffectiveTheme helper; jsdom
@@ -232,7 +233,7 @@ describe("hub page", () => {
     });
 
     it("applies sepia when readerSettings.theme is sepia", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({
           theme: "light",
           readerSettings: { theme: "sepia" },
@@ -630,7 +631,7 @@ describe("hub page", () => {
     it("renders the Translate button enabled regardless of AI Translations setting", async () => {
       // The Translator API is on-device and needs no settings, so the
       // button no longer mirrors the LLM-availability state.
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ llmEnabled: false }),
       );
       mockedGetAllVocab.mockResolvedValue([wordWithTwoExamples]);
@@ -797,7 +798,7 @@ describe("hub page", () => {
     it("Translate button on flashcard stays enabled regardless of AI Translations setting", async () => {
       // The Translator API is on-device and needs no settings, so the
       // flashcard button no longer mirrors the LLM-availability state.
-      chrome.storage.sync.get.mockImplementation(() =>
+      mock(chrome.storage.sync.get).mockImplementation(() =>
         Promise.resolve({ llmEnabled: false }),
       );
       const untranslated: VocabEntry = {
@@ -1375,7 +1376,7 @@ describe("hub page", () => {
       await loadHub();
 
       const origURL = globalThis.URL;
-      const createObjectURL = vi.fn(() => "blob:test");
+      const createObjectURL = vi.fn((_blob: Blob) => "blob:test");
       const revokeObjectURL = vi.fn();
       globalThis.URL = Object.assign(origURL, { createObjectURL, revokeObjectURL });
 

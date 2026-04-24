@@ -70,12 +70,15 @@ function createMockIDB() {
 // ─── Helpers ───────────────────────────────────────────────────────
 
 function createMockHandle(name: string): FileSystemFileHandle {
+  // jsdom doesn't ship the full FileSystemFileHandle surface, but the
+  // module under test only ever calls `kind`, `name`, `getFile`, and
+  // `requestPermission` -- so a partial mock is enough at runtime.
   return {
     kind: "file" as const,
     name,
     getFile: async () => new File([], name),
     requestPermission: async () => "granted" as PermissionState,
-  };
+  } as unknown as FileSystemFileHandle;
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────

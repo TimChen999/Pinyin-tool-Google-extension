@@ -13,6 +13,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { VocabEntry } from "../../src/shared/types";
+import { mock } from "../test-helpers";
 
 vi.mock("../../src/background/vocab-store", () => ({
   getAllVocab: vi.fn(),
@@ -169,8 +170,8 @@ async function switchToVocabTab(): Promise<void> {
 describe("vocab tab", () => {
   beforeEach(() => {
     buildPopupDOM();
-    chrome.storage.sync.get.mockImplementation(() => Promise.resolve({}));
-    chrome.storage.sync.set.mockImplementation(() => Promise.resolve());
+    mock(chrome.storage.sync.get).mockImplementation(() => Promise.resolve({}));
+    mock(chrome.storage.sync.set).mockImplementation(() => Promise.resolve());
     mockedGetAllVocab.mockReset();
     mockedRemoveWord.mockReset();
   });

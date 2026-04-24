@@ -49,6 +49,7 @@ import type {
   PinyinResponseLLM,
   PinyinError,
 } from "../../src/shared/types";
+import { mock } from "../test-helpers";
 
 // ─── In-memory chrome.storage.local mock ────────────────────────────
 
@@ -57,7 +58,7 @@ let store: Map<string, unknown>;
 function setupStorageMocks() {
   store = new Map();
 
-  chrome.storage.local.get.mockImplementation(
+  mock(chrome.storage.local.get).mockImplementation(
     (keys: string | string[] | Record<string, unknown> | null) => {
       if (keys === null) {
         const all: Record<string, unknown> = {};
@@ -78,14 +79,14 @@ function setupStorageMocks() {
     },
   );
 
-  chrome.storage.local.set.mockImplementation(
+  mock(chrome.storage.local.set).mockImplementation(
     (items: Record<string, unknown>) => {
       for (const [k, v] of Object.entries(items)) store.set(k, v);
       return Promise.resolve();
     },
   );
 
-  chrome.storage.local.remove.mockImplementation(
+  mock(chrome.storage.local.remove).mockImplementation(
     (keys: string | string[]) => {
       const keyList = typeof keys === "string" ? [keys] : keys;
       for (const k of keyList) store.delete(k);
@@ -93,7 +94,7 @@ function setupStorageMocks() {
     },
   );
 
-  chrome.storage.local.clear.mockImplementation(() => {
+  mock(chrome.storage.local.clear).mockImplementation(() => {
     store.clear();
     return Promise.resolve();
   });

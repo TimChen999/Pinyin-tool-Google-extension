@@ -79,7 +79,7 @@ export async function recordWords(
   if (words.length === 0) return;
 
   const result = await chrome.storage.local.get(STORAGE_KEY);
-  const store: VocabRecord = result[STORAGE_KEY] ?? {};
+  const store: VocabRecord = (result[STORAGE_KEY] as VocabRecord | undefined) ?? {};
   const now = Date.now();
 
   let exampleAttached = false;
@@ -134,13 +134,16 @@ export async function recordWords(
  */
 export async function getAllVocab(): Promise<VocabEntry[]> {
   const result = await chrome.storage.local.get(STORAGE_KEY);
-  const store: VocabRecord | undefined = result[STORAGE_KEY];
+  const store = result[STORAGE_KEY] as VocabRecord | undefined;
   if (!store) return [];
+  // Defaults guard against legacy entries persisted before the
+  // review-stats fields existed; spread first so the entry's own
+  // values take precedence whenever present.
   return Object.values(store).map((entry) => ({
-    wrongStreak: 0,
-    totalReviews: 0,
-    totalCorrect: 0,
     ...entry,
+    wrongStreak: entry.wrongStreak ?? 0,
+    totalReviews: entry.totalReviews ?? 0,
+    totalCorrect: entry.totalCorrect ?? 0,
   }));
 }
 
@@ -164,7 +167,7 @@ export async function updateFlashcardResult(
   correct: boolean,
 ): Promise<void> {
   const result = await chrome.storage.local.get(STORAGE_KEY);
-  const store: VocabRecord = result[STORAGE_KEY] ?? {};
+  const store: VocabRecord = (result[STORAGE_KEY] as VocabRecord | undefined) ?? {};
   const entry = store[chars];
   if (!entry) return;
 
@@ -181,7 +184,7 @@ export async function updateFlashcardResult(
 
 export async function removeWord(chars: string): Promise<void> {
   const result = await chrome.storage.local.get(STORAGE_KEY);
-  const store: VocabRecord = result[STORAGE_KEY] ?? {};
+  const store: VocabRecord = (result[STORAGE_KEY] as VocabRecord | undefined) ?? {};
   delete store[chars];
   await chrome.storage.local.set({ [STORAGE_KEY]: store });
 }
@@ -197,7 +200,7 @@ export async function removeExample(
   index: number,
 ): Promise<void> {
   const result = await chrome.storage.local.get(STORAGE_KEY);
-  const store: VocabRecord = result[STORAGE_KEY] ?? {};
+  const store: VocabRecord = (result[STORAGE_KEY] as VocabRecord | undefined) ?? {};
   const entry = store[chars];
   if (!entry || !entry.examples) return;
   if (index < 0 || index >= entry.examples.length) return;
@@ -218,7 +221,7 @@ export async function setExampleTranslation(
   translation: string,
 ): Promise<void> {
   const result = await chrome.storage.local.get(STORAGE_KEY);
-  const store: VocabRecord = result[STORAGE_KEY] ?? {};
+  const store: VocabRecord = (result[STORAGE_KEY] as VocabRecord | undefined) ?? {};
   const entry = store[chars];
   if (!entry || !entry.examples) return;
   if (index < 0 || index >= entry.examples.length) return;
@@ -238,7 +241,7 @@ export async function importVocab(
   if (entries.length === 0) return { added: 0, updated: 0 };
 
   const result = await chrome.storage.local.get(STORAGE_KEY);
-  const store: VocabRecord = result[STORAGE_KEY] ?? {};
+  const store: VocabRecord = (result[STORAGE_KEY] as VocabRecord | undefined) ?? {};
   let added = 0;
   let updated = 0;
 

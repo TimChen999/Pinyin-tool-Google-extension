@@ -15,6 +15,7 @@ import {
   VOCAB_STOP_WORDS,
 } from "../../src/shared/constants";
 import type { VocabEntry, VocabExample } from "../../src/shared/types";
+import { mock } from "../test-helpers";
 
 // ─── In-Memory Storage Backend ──────────────────────────────────────
 // vitest-chrome-mv3 provides bare vi.fn() stubs for chrome.storage.local,
@@ -25,7 +26,7 @@ let store: Map<string, unknown>;
 function setupStorageMocks() {
   store = new Map();
 
-  chrome.storage.local.get.mockImplementation(
+  mock(chrome.storage.local.get).mockImplementation(
     (keys: string | string[] | Record<string, unknown> | null) => {
       if (keys === null) {
         const all: Record<string, unknown> = {};
@@ -41,7 +42,7 @@ function setupStorageMocks() {
     },
   );
 
-  chrome.storage.local.set.mockImplementation(
+  mock(chrome.storage.local.set).mockImplementation(
     (items: Record<string, unknown>) => {
       for (const [k, v] of Object.entries(items)) {
         store.set(k, v);
@@ -50,7 +51,7 @@ function setupStorageMocks() {
     },
   );
 
-  chrome.storage.local.remove.mockImplementation(
+  mock(chrome.storage.local.remove).mockImplementation(
     (keys: string | string[]) => {
       const keyList = typeof keys === "string" ? [keys] : keys;
       for (const k of keyList) store.delete(k);
@@ -58,7 +59,7 @@ function setupStorageMocks() {
     },
   );
 
-  chrome.storage.local.clear.mockImplementation(() => {
+  mock(chrome.storage.local.clear).mockImplementation(() => {
     store.clear();
     return Promise.resolve();
   });
