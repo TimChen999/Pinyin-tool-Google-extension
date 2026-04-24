@@ -206,28 +206,3 @@ Respond ONLY with valid JSON in this exact format:
   "translation": "<full English translation>"
 }`;
 
-/**
- * Slimmed system prompt used by translateSentence() in llm-client.ts.
- * No segmentation, no per-word definitions -- just a single-field JSON
- * payload so the response is small, fast, and trivially parseable. Used
- * when we need to translate a captured example sentence on its own
- * (auto-fired at "+ Vocab" save time when AI is on, or on demand from
- * the vocab card / flashcard "Translate" button).
- */
-export const SENTENCE_TRANSLATION_PROMPT = `You are a Chinese-to-English translator integrated into a browser extension.
-Given a Chinese sentence, produce a single natural English translation.
-
-Respond ONLY with valid JSON in this exact format:
-{
-  "translation": "<full English translation>"
-}`;
-
-// Note: the sentence translator deliberately reuses LLM_MAX_TOKENS
-// rather than carrying its own (smaller) cap. Thinking models like
-// Gemini 2.5 Pro can spend a large chunk of the output budget on
-// internal reasoning before emitting any visible text, so a 256-token
-// cap consistently produced finishReason=MAX_TOKENS with empty parts.
-// LLM_MAX_TOKENS already gives the main pinyin call enough headroom
-// for thinking + JSON, and the slimmed sentence prompt makes the
-// actual visible payload tiny -- so cost stays low in practice while
-// thinking models get the room they need.

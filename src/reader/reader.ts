@@ -21,6 +21,7 @@ import {
   saveErrorToCache,
 } from "../background/cache";
 import { containsChinese, sentenceContextAround } from "../shared/chinese-detect";
+import { handleVocabCapture } from "../shared/vocab-capture";
 import {
   showOverlay,
   updateOverlay,
@@ -1264,9 +1265,10 @@ export async function initReader(): Promise<void> {
 
   els.openFileBtn?.classList.add("hidden");
 
-  setVocabCallback((word, context) => {
-    chrome.runtime.sendMessage({ type: "RECORD_WORD", word, context });
-  });
+  // Shared "+ Vocab" pipeline -- same handler the in-page content
+  // script registers, so reader captures stay on one wire format.
+  // See src/shared/vocab-capture.ts.
+  setVocabCallback(handleVocabCapture);
 
   await renderRecentFiles(els);
 

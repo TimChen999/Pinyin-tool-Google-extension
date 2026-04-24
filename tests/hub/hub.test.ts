@@ -16,6 +16,7 @@ vi.mock("../../src/background/vocab-store", () => ({
   getAllVocab: vi.fn(),
   clearVocab: vi.fn(),
   removeWord: vi.fn(),
+  setExampleTranslation: vi.fn(),
   updateFlashcardResult: vi.fn(),
   importVocab: vi.fn(),
 }));
@@ -24,6 +25,7 @@ import {
   getAllVocab,
   clearVocab,
   removeWord,
+  setExampleTranslation,
   updateFlashcardResult,
   importVocab,
 } from "../../src/background/vocab-store";
@@ -31,6 +33,7 @@ import {
 const mockedGetAllVocab = getAllVocab as ReturnType<typeof vi.fn>;
 const mockedClearVocab = clearVocab as ReturnType<typeof vi.fn>;
 const mockedRemoveWord = removeWord as ReturnType<typeof vi.fn>;
+const mockedSetExampleTranslation = setExampleTranslation as ReturnType<typeof vi.fn>;
 const mockedUpdateResult = updateFlashcardResult as ReturnType<typeof vi.fn>;
 const mockedImportVocab = importVocab as ReturnType<typeof vi.fn>;
 
@@ -127,6 +130,7 @@ async function loadHub() {
     getAllVocab: mockedGetAllVocab,
     clearVocab: mockedClearVocab,
     removeWord: mockedRemoveWord,
+    setExampleTranslation: mockedSetExampleTranslation,
     updateFlashcardResult: mockedUpdateResult,
     importVocab: mockedImportVocab,
   }));
@@ -134,6 +138,27 @@ async function loadHub() {
   const mod = await import("../../src/hub/hub");
   await mod.initHub();
   return mod;
+}
+
+/**
+ * Stubs the on-device Translator API on `globalThis` so the
+ * Translate-button tests can drive successful + failure paths
+ * deterministically. Returns the underlying mock so tests can assert
+ * call counts.
+ */
+function stubGlobalTranslator(translation: string) {
+  const translateFn = vi.fn(async () => translation);
+  const createFn = vi.fn(async () => ({ translate: translateFn }));
+  const availabilityFn = vi.fn(async () => "available");
+  (globalThis as any).Translator = {
+    availability: availabilityFn,
+    create: createFn,
+  };
+  return { availabilityFn, createFn, translateFn };
+}
+
+function clearGlobalTranslator() {
+  delete (globalThis as any).Translator;
 }
 
 function vocabTabBtn(): HTMLButtonElement {
@@ -172,12 +197,14 @@ describe("hub page", () => {
     mockedGetAllVocab.mockReset();
     mockedClearVocab.mockReset();
     mockedRemoveWord.mockReset();
+    mockedSetExampleTranslation.mockReset();
     mockedUpdateResult.mockReset();
     mockedImportVocab.mockReset();
   });
 
   afterEach(() => {
     document.body.innerHTML = "";
+    clearGlobalTranslator();
     vi.restoreAllMocks();
   });
 
@@ -600,7 +627,9 @@ describe("hub page", () => {
       });
     });
 
-    it("renders a disabled Translate button when AI is unavailable", async () => {
+    it("renders the Translate button enabled regardless of AI Translations setting", async () => {
+      // The Translator API is on-device and needs no settings, so the
+      // button no longer mirrors the LLM-availability state.
       chrome.storage.sync.get.mockImplementation(() =>
         Promise.resolve({ llmEnabled: false }),
       );
@@ -615,19 +644,13 @@ describe("hub page", () => {
       });
 
       const btn = document.querySelector(".vocab-example-translate-btn") as HTMLButtonElement;
-      expect(btn.disabled).toBe(true);
+      expect(btn.disabled).toBe(false);
     });
 
-    it("Translate button sends ADD_EXAMPLE_TRANSLATION when AI is available", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
-        Promise.resolve({ llmEnabled: true, apiKey: "test-key" }),
-      );
+    it("Translate button calls Translator + setExampleTranslation and re-renders the card", async () => {
+      const { translateFn } = stubGlobalTranslator("The bank is closed today.");
       mockedGetAllVocab.mockResolvedValue([wordWithTwoExamples]);
-      const sendMessageSpy = vi.fn().mockResolvedValue({
-        ok: true,
-        translation: "The bank is closed today.",
-      });
-      chrome.runtime.sendMessage = sendMessageSpy as unknown as typeof chrome.runtime.sendMessage;
+      mockedSetExampleTranslation.mockResolvedValue(undefined);
       await loadHub();
 
       const row = vocabList().querySelector(".vocab-row") as HTMLDivElement;
@@ -640,6 +663,8 @@ describe("hub page", () => {
       const btn = document.querySelector(".vocab-example-translate-btn") as HTMLButtonElement;
       expect(btn.disabled).toBe(false);
 
+      // Have getAllVocab return the freshly-translated entry on the
+      // refresh round-trip so the card paints the translation row.
       mockedGetAllVocab.mockResolvedValue([
         {
           ...wordWithTwoExamples,
@@ -652,12 +677,42 @@ describe("hub page", () => {
       btn.click();
 
       await vi.waitFor(() => {
-        expect(sendMessageSpy).toHaveBeenCalledWith({
-          type: "ADD_EXAMPLE_TRANSLATION",
-          chars: "银行",
-          index: 1,
-        });
+        expect(translateFn).toHaveBeenCalledWith("银行今天关门。");
       });
+      await vi.waitFor(() => {
+        expect(mockedSetExampleTranslation).toHaveBeenCalledWith(
+          "银行",
+          1,
+          "The bank is closed today.",
+        );
+      });
+    });
+
+    it("Translate button shows Retry on Translator failure and never persists", async () => {
+      // Translator API missing entirely (older Chrome / mobile / Edge).
+      // The button should surface a clear error inline instead of
+      // silently failing or persisting an empty translation.
+      mockedGetAllVocab.mockResolvedValue([wordWithTwoExamples]);
+      mockedSetExampleTranslation.mockResolvedValue(undefined);
+      clearGlobalTranslator();
+      await loadHub();
+
+      const row = vocabList().querySelector(".vocab-row") as HTMLDivElement;
+      row.click();
+
+      await vi.waitFor(() => {
+        expect(document.querySelector(".vocab-example-translate-btn")).not.toBeNull();
+      });
+
+      const btn = document.querySelector(".vocab-example-translate-btn") as HTMLButtonElement;
+      btn.click();
+
+      await vi.waitFor(() => {
+        expect(btn.textContent).toBe("Retry translate");
+      });
+      expect(btn.disabled).toBe(false);
+      expect(btn.title.toLowerCase()).toContain("translation");
+      expect(mockedSetExampleTranslation).not.toHaveBeenCalled();
     });
   });
 
@@ -722,9 +777,6 @@ describe("hub page", () => {
     });
 
     it("shows a Translate button when example has no translation", async () => {
-      chrome.storage.sync.get.mockImplementation(() =>
-        Promise.resolve({ llmEnabled: true, apiKey: "test-key" }),
-      );
       const untranslated: VocabEntry = {
         ...wordWithExample,
         examples: [{ sentence: "我去银行存钱。", capturedAt: 1 }],
@@ -742,7 +794,9 @@ describe("hub page", () => {
       expect(btn.disabled).toBe(false);
     });
 
-    it("Translate button on flashcard is disabled when AI is unavailable", async () => {
+    it("Translate button on flashcard stays enabled regardless of AI Translations setting", async () => {
+      // The Translator API is on-device and needs no settings, so the
+      // flashcard button no longer mirrors the LLM-availability state.
       chrome.storage.sync.get.mockImplementation(() =>
         Promise.resolve({ llmEnabled: false }),
       );
@@ -760,7 +814,7 @@ describe("hub page", () => {
       });
 
       const btn = document.querySelector(".fc-example-translate-btn") as HTMLButtonElement;
-      expect(btn.disabled).toBe(true);
+      expect(btn.disabled).toBe(false);
     });
 
     it("clears the example block between cards", async () => {

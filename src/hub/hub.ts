@@ -6,13 +6,20 @@
  * See: VOCAB_HUB_SPEC.md for the full feature specification.
  */
 
-import { getAllVocab, clearVocab, removeWord, updateFlashcardResult, importVocab } from "../background/vocab-store";
+import {
+  getAllVocab,
+  clearVocab,
+  removeWord,
+  setExampleTranslation,
+  updateFlashcardResult,
+  importVocab,
+} from "../background/vocab-store";
 import { convertToPinyin } from "../background/pinyin-service";
 import {
   FLASHCARD_WRONG_POOL_RATIO,
   DEFAULT_SETTINGS,
-  PROVIDER_PRESETS,
 } from "../shared/constants";
+import { translateExampleSentence } from "../shared/translate-example";
 import type { ExtensionSettings, PinyinStyle, VocabEntry, VocabExample, WordData } from "../shared/types";
 import { resolveEffectiveTheme } from "../shared/theme";
 import type { ReaderSettings } from "../reader/reader-types";
@@ -115,34 +122,15 @@ function dismissVocabCard(): void {
 
 /**
  * Reads the user's effective extension settings, layering stored
- * values over DEFAULT_SETTINGS. Centralized so the example-rendering
- * paths (vocab card + flashcard) make a single storage round-trip per
- * card, then derive both `aiAvailable` and `pinyinStyle` from the
- * same snapshot.
+ * values over DEFAULT_SETTINGS. Used by the example-rendering paths
+ * (vocab card + flashcard) to derive `pinyinStyle` for ruby
+ * rendering. AI Translations no longer gates anything here -- the
+ * Translate button uses Chrome's on-device Translator API and is
+ * always enabled.
  */
 async function getEffectiveSettings(): Promise<ExtensionSettings> {
   const stored = (await chrome.storage.sync.get(null)) as Partial<ExtensionSettings>;
   return { ...DEFAULT_SETTINGS, ...stored };
-}
-
-/**
- * Returns true when the user's saved settings would let the service
- * worker run a sentence translation right now (AI is enabled and the
- * provider's API key requirement is met). Used to gate the
- * "Translate" button on missing example translations -- when false,
- * the button still renders for discoverability but is disabled with
- * a hint, matching the same behavior the overlay uses for its own
- * AI-disabled state.
- */
-function settingsAllowAi(settings: ExtensionSettings): boolean {
-  if (!settings.llmEnabled) return false;
-  const preset = PROVIDER_PRESETS[settings.provider];
-  if (preset.requiresApiKey && !settings.apiKey) return false;
-  return true;
-}
-
-async function isAiAvailable(): Promise<boolean> {
-  return settingsAllowAi(await getEffectiveSettings());
 }
 
 /**
@@ -255,16 +243,19 @@ function renderPlainHighlightedSentence(
 /**
  * Builds one .vocab-example block: highlighted sentence row with an
  * inline X (REMOVE_EXAMPLE), and either the stored translation or a
- * Translate button (ADD_EXAMPLE_TRANSLATION). On a successful
- * mutation the whole card is re-rendered via refreshVocabCard so the
- * list of examples and the underlying entry stay in sync.
+ * Translate button. The Translate button calls Chrome's built-in
+ * Translator API directly via translateExampleSentence (the click
+ * supplies the transient user activation Translator.create() needs)
+ * and patches the stored example via setExampleTranslation; no
+ * round-trip to the service worker. On a successful mutation the
+ * whole card is re-rendered via refreshVocabCard so the list of
+ * examples and the underlying entry stay in sync.
  */
 function renderExampleItem(
   entry: VocabEntry,
   example: VocabExample,
   index: number,
   els: ReturnType<typeof getElements>,
-  aiAvailable: boolean,
   pinyinStyle: PinyinStyle,
 ): HTMLElement {
   const item = document.createElement("div");
@@ -305,27 +296,19 @@ function renderExampleItem(
     translateBtn.className = "vocab-example-translate-btn";
     translateBtn.type = "button";
     translateBtn.textContent = "Translate";
-    if (!aiAvailable) {
+    translateBtn.addEventListener("click", async () => {
       translateBtn.disabled = true;
-      translateBtn.title = "Enable AI Translations and add an API key to use this.";
-    } else {
-      translateBtn.addEventListener("click", async () => {
-        translateBtn.disabled = true;
-        translateBtn.textContent = "Translating\u2026";
-        const response = (await chrome.runtime.sendMessage({
-          type: "ADD_EXAMPLE_TRANSLATION",
-          chars: entry.chars,
-          index,
-        })) as { ok: boolean; translation?: string; error?: string } | undefined;
-        if (response?.ok) {
-          await refreshVocabCard(entry.chars, els);
-        } else {
-          translateBtn.disabled = false;
-          translateBtn.textContent = "Retry translate";
-          translateBtn.title = response?.error ?? "Translation failed";
-        }
-      });
-    }
+      translateBtn.textContent = "Translating\u2026";
+      const result = await translateExampleSentence(example.sentence);
+      if (result.ok) {
+        await setExampleTranslation(entry.chars, index, result.translation);
+        await refreshVocabCard(entry.chars, els);
+      } else {
+        translateBtn.disabled = false;
+        translateBtn.textContent = "Retry translate";
+        translateBtn.title = result.error.message;
+      }
+    });
     item.appendChild(translateBtn);
   }
 
@@ -341,7 +324,6 @@ function renderExampleItem(
 function renderExamplesSection(
   entry: VocabEntry,
   els: ReturnType<typeof getElements>,
-  aiAvailable: boolean,
   pinyinStyle: PinyinStyle,
 ): HTMLElement | null {
   const examples = entry.examples ?? [];
@@ -356,7 +338,7 @@ function renderExamplesSection(
   section.appendChild(heading);
 
   examples.forEach((ex, i) => {
-    section.appendChild(renderExampleItem(entry, ex, i, els, aiAvailable, pinyinStyle));
+    section.appendChild(renderExampleItem(entry, ex, i, els, pinyinStyle));
   });
 
   return section;
@@ -425,23 +407,23 @@ async function showVocabCard(
 
   // Mount the card synchronously so callers / tests see the overlay
   // immediately. Examples are enriched in a follow-up async pass --
-  // they need an AI-availability check from chrome.storage.sync, and
+  // they need a pinyin-style read from chrome.storage.sync, and
   // delaying the whole mount on that round-trip would cause a
   // visible blank-then-pop.
   document.body.appendChild(overlay);
 
   if (!entry.examples || entry.examples.length === 0) return;
 
-  // One storage round-trip per card render: pull both AI availability
-  // and the user's pinyin-style preference from the same snapshot.
+  // Storage round-trip just for the user's pinyin-style preference;
+  // ruby rendering needs it but the Translate button no longer
+  // depends on any settings.
   const settings = await getEffectiveSettings();
   // Bail if the user dismissed / replaced this card while we were
   // awaiting -- prevents a stale examples block from appearing under
   // a different word.
   if (!document.body.contains(overlay)) return;
 
-  const aiAvailable = settingsAllowAi(settings);
-  const examples = renderExamplesSection(entry, els, aiAvailable, settings.pinyinStyle);
+  const examples = renderExamplesSection(entry, els, settings.pinyinStyle);
   if (examples) card.insertBefore(examples, actions);
 }
 
@@ -534,12 +516,13 @@ function flipCard(els: ReturnType<typeof getElements>): void {
  * sentence for the current card, mirroring the vocab card's logic
  * but limited to slot 0 to keep the flashcard face uncluttered.
  * Shows a Translate button when the sentence has no translation;
- * disabled with a hint when AI Translations isn't configured.
+ * the button is always enabled because Chrome's on-device Translator
+ * API needs no settings configuration.
  *
  * Async because it has to consult chrome.storage.sync for the
- * AI-availability check; the surrounding flip happens synchronously
- * so the user sees pinyin / definition immediately even if this
- * block hasn't resolved yet.
+ * pinyin-style preference (used to render the ruby annotations); the
+ * surrounding flip happens synchronously so the user sees pinyin /
+ * definition immediately even if this block hasn't resolved yet.
  */
 async function renderFlashcardExample(
   els: ReturnType<typeof getElements>,
@@ -558,8 +541,8 @@ async function renderFlashcardExample(
   // prior flip can't paint over a newer card.
   const renderingIndex = session.currentIndex;
 
-  // Single storage round-trip: derive both pinyin style and AI
-  // availability from the same snapshot.
+  // Storage round-trip just for the user's pinyin-style preference;
+  // the Translate button no longer depends on any AI settings.
   const settings = await getEffectiveSettings();
   if (!session || session.currentIndex !== renderingIndex) return;
 
@@ -577,41 +560,32 @@ async function renderFlashcardExample(
     return;
   }
 
-  const aiAvailable = settingsAllowAi(settings);
-
   const translateBtn = document.createElement("button");
   translateBtn.className = "fc-example-translate-btn";
   translateBtn.type = "button";
   translateBtn.textContent = "Translate";
-  if (!aiAvailable) {
+  translateBtn.addEventListener("click", async () => {
     translateBtn.disabled = true;
-    translateBtn.title = "Enable AI Translations and add an API key to use this.";
-  } else {
-    translateBtn.addEventListener("click", async () => {
-      translateBtn.disabled = true;
-      translateBtn.textContent = "Translating\u2026";
-      const response = (await chrome.runtime.sendMessage({
-        type: "ADD_EXAMPLE_TRANSLATION",
-        chars: card.chars,
-        index: 0,
-      })) as { ok: boolean; translation?: string; error?: string } | undefined;
-      if (!session || session.currentIndex !== renderingIndex) return;
-      if (response?.ok && response.translation) {
-        // Patch the in-memory card so re-flipping in the same session
-        // shows the translation without another LLM call.
-        if (!card.examples) card.examples = [];
-        if (card.examples[0]) card.examples[0].translation = response.translation;
-        const transEl = document.createElement("div");
-        transEl.className = "fc-example-translation";
-        transEl.textContent = response.translation;
-        translateBtn.replaceWith(transEl);
-      } else {
-        translateBtn.disabled = false;
-        translateBtn.textContent = "Retry translate";
-        translateBtn.title = response?.error ?? "Translation failed";
-      }
-    });
-  }
+    translateBtn.textContent = "Translating\u2026";
+    const result = await translateExampleSentence(example.sentence);
+    if (!session || session.currentIndex !== renderingIndex) return;
+    if (result.ok) {
+      // Patch the in-memory card so re-flipping in the same session
+      // shows the translation without another Translator call.
+      if (!card.examples) card.examples = [];
+      if (card.examples[0]) card.examples[0].translation = result.translation;
+      // Also persist so the next session / card-render sees it.
+      await setExampleTranslation(card.chars, 0, result.translation);
+      const transEl = document.createElement("div");
+      transEl.className = "fc-example-translation";
+      transEl.textContent = result.translation;
+      translateBtn.replaceWith(transEl);
+    } else {
+      translateBtn.disabled = false;
+      translateBtn.textContent = "Retry translate";
+      translateBtn.title = result.error.message;
+    }
+  });
   slot.appendChild(translateBtn);
   slot.classList.remove("hidden");
 }

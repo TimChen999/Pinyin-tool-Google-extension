@@ -517,4 +517,150 @@ describe("content script", () => {
       );
     });
   });
+
+  // ─── +Vocab callback (gate + on-device translate pipeline) ────
+  describe("+Vocab callback", () => {
+    /**
+     * Returns the vocab callback content.ts registered with overlay
+     * at module-import time. The callback closes over the on-device
+     * Translator wrapper and the example-quality gate.
+     */
+    function getRegisteredVocabCallback(): (
+      word: { chars: string; pinyin: string; definition: string },
+      context: string,
+    ) => Promise<void> {
+      const calls = mockSetVocabCallback.mock.calls;
+      const last = calls[calls.length - 1];
+      return last[0];
+    }
+
+    function setTranslator(impl: unknown): void {
+      (globalThis as { Translator?: unknown }).Translator = impl as never;
+    }
+
+    function clearTranslator(): void {
+      delete (globalThis as { Translator?: unknown }).Translator;
+    }
+
+    /**
+     * The shared translate-example module caches the Translator
+     * instance per importing context. content.ts and the test file
+     * both pull from the same module record, so we reset it between
+     * cases to keep "Translator missing" / "create() rejects" /
+     * "happy path" tests isolated.
+     */
+    async function resetTranslatorCache(): Promise<void> {
+      const mod = await import("../../src/shared/translate-example");
+      mod._resetForTests();
+    }
+
+    beforeEach(async () => {
+      // Real timers here -- the callback awaits the async Translator
+      // call and the inner `await Promise.resolve()` chain inside it,
+      // which fake timers disrupt for promise resolution tests.
+      vi.useRealTimers();
+      // A fresh sendMessage spy per test so call counts are clean.
+      chrome.runtime.sendMessage.mockReset();
+      chrome.runtime.sendMessage.mockImplementation(() => Promise.resolve());
+      await resetTranslatorCache();
+    });
+
+    afterEach(() => {
+      clearTranslator();
+    });
+
+    const word = { chars: "学习", pinyin: "xué xí", definition: "to study" };
+    const goodContext = "我每天都在学习中文。";
+
+    it("low-quality context: sends RECORD_WORD without an example, never invokes Translator", async () => {
+      const create = vi.fn(async () => ({ translate: vi.fn() }));
+      setTranslator({
+        availability: vi.fn(async () => "available"),
+        create,
+      });
+
+      const cb = getRegisteredVocabCallback();
+      await cb(word, "学"); // context too short to pass isUsableExample
+
+      expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+      const msg = chrome.runtime.sendMessage.mock.calls[0][0];
+      expect(msg).toMatchObject({ type: "RECORD_WORD", word });
+      expect(msg.example).toBeUndefined();
+      // The gate short-circuited before we got near the Translator call.
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it("good context + Translator success: persists the word first, then ships SET_EXAMPLE_TRANSLATION", async () => {
+      const translate = vi.fn(async () => "I study Chinese every day.");
+      const create = vi.fn(async () => ({ translate }));
+      setTranslator({
+        availability: vi.fn(async () => "available"),
+        create,
+      });
+
+      const cb = getRegisteredVocabCallback();
+      await cb(word, goodContext);
+
+      // Two messages: the immediate RECORD_WORD (with the trimmed
+      // sentence but no translation yet) and the follow-up
+      // SET_EXAMPLE_TRANSLATION once the on-device call resolved.
+      expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(2);
+
+      const recordMsg = chrome.runtime.sendMessage.mock.calls[0][0];
+      expect(recordMsg.type).toBe("RECORD_WORD");
+      expect(recordMsg.word).toEqual(word);
+      expect(recordMsg.example).toMatchObject({ sentence: goodContext });
+      expect(recordMsg.example.translation).toBeUndefined();
+
+      const setMsg = chrome.runtime.sendMessage.mock.calls[1][0];
+      expect(setMsg).toMatchObject({
+        type: "SET_EXAMPLE_TRANSLATION",
+        chars: word.chars,
+        sentence: goodContext,
+        translation: "I study Chinese every day.",
+      });
+
+      expect(translate).toHaveBeenCalledWith(goodContext);
+    });
+
+    it("good context + translate() rejection: sends RECORD_WORD, no SET_EXAMPLE_TRANSLATION", async () => {
+      const translate = vi.fn(async () => {
+        throw new Error("model died");
+      });
+      const create = vi.fn(async () => ({ translate }));
+      setTranslator({
+        availability: vi.fn(async () => "available"),
+        create,
+      });
+
+      const cb = getRegisteredVocabCallback();
+      await cb(word, goodContext);
+
+      // RECORD_WORD lands; the failed translation just doesn't ship a
+      // follow-up message. The user can re-trigger via the hub
+      // Translate button later.
+      expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+      const recordMsg = chrome.runtime.sendMessage.mock.calls[0][0];
+      expect(recordMsg).toMatchObject({
+        type: "RECORD_WORD",
+        word,
+        example: { sentence: goodContext },
+      });
+    });
+
+    it("good context with Translator API missing: sends only RECORD_WORD, no crash", async () => {
+      clearTranslator();
+
+      const cb = getRegisteredVocabCallback();
+      await cb(word, goodContext);
+
+      expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+      const recordMsg = chrome.runtime.sendMessage.mock.calls[0][0];
+      expect(recordMsg).toMatchObject({
+        type: "RECORD_WORD",
+        word,
+        example: { sentence: goodContext },
+      });
+    });
+  });
 });

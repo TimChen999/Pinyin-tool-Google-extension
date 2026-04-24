@@ -24,6 +24,7 @@ import {
   MAX_SELECTION_LENGTH,
   RETRY_DELAYS_MS,
 } from "../shared/constants";
+import { handleVocabCapture } from "../shared/vocab-capture";
 import type {
   ExtensionMessage,
   PinyinResponseLocal,
@@ -480,9 +481,11 @@ document.addEventListener("keydown", (e: KeyboardEvent) => {
 
 // ─── Vocab callback ────────────────────────────────────────────────
 
-setVocabCallback((word, context) => {
-  chrome.runtime.sendMessage({ type: "RECORD_WORD", word, context });
-});
+// "+ Vocab" handler -- shared with the in-extension reader so both
+// surfaces stay on one wire format. See src/shared/vocab-capture.ts
+// for the full pipeline (gate -> trim -> RECORD_WORD -> async
+// translate -> SET_EXAMPLE_TRANSLATION).
+setVocabCallback(handleVocabCapture);
 
 // ─── Theme caching ─────────────────────────────────────────────────
 

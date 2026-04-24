@@ -202,14 +202,35 @@ export type ExtensionMessage =
   | { type: "CONTEXT_MENU_TRIGGER"; text: string }
   | { type: "COMMAND_TRIGGER" }
   | {
+      /**
+       * Content script -> Service worker. Persists a single recorded
+       * word, optionally with a captured example sentence already
+       * trimmed and (when the on-device Translator API succeeded
+       * synchronously) translated by the content script. The service
+       * worker no longer runs the example-quality gate, the trim, or
+       * the translation -- those move to the content script so the
+       * Translator API runs in a context that has user activation.
+       */
       type: "RECORD_WORD";
       word: { chars: string; pinyin: string; definition: string };
-      context?: string;
+      example?: { sentence: string; translation?: string };
+    }
+  | {
+      /**
+       * Content script -> Service worker. Sent after RECORD_WORD when
+       * the Translator API completed asynchronously (e.g. on the very
+       * first call where the model had to download). The service
+       * worker looks up the matching example by sentence and patches
+       * its `translation` field via setExampleTranslation.
+       */
+      type: "SET_EXAMPLE_TRANSLATION";
+      chars: string;
+      sentence: string;
+      translation: string;
     }
   | { type: "OCR_START" }
   | { type: "OCR_START_SELECTION" }
   | { type: "REMOVE_WORD"; chars: string }
   | { type: "REMOVE_EXAMPLE"; chars: string; index: number }
-  | { type: "ADD_EXAMPLE_TRANSLATION"; chars: string; index: number }
   | { type: "OCR_CAPTURE_REQUEST"; rect: { x: number; y: number; width: number; height: number } }
   | { type: "OCR_CAPTURE_RESULT"; dataUrl: string };
