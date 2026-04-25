@@ -365,17 +365,24 @@ describe("popup settings", () => {
       expect(el.status.className).toBe("success");
     });
 
-    it("validates API key when provider requires it", async () => {
+    it("warns about a too-short API key but still saves unrelated fields", async () => {
       await loadPopup();
 
+      // User sets a non-default unrelated field, then tries to Save
+      // while the API key is still mid-entry. The unrelated field
+      // must persist; only the AI portion gets a warning.
+      el.overlayEnabled.checked = false;
       el.apiKey.value = "abc";
       el.saveBtn.click();
 
       await vi.waitFor(() =>
-        expect(el.status.textContent).toContain("API key must be"),
+        expect(chrome.storage.sync.set).toHaveBeenCalled(),
       );
-      expect(el.status.className).toBe("error");
-      expect(chrome.storage.sync.set).not.toHaveBeenCalled();
+      const saved = mock(chrome.storage.sync.set).mock.calls[0][0];
+      expect(saved.overlayEnabled).toBe(false);
+
+      expect(el.status.textContent).toContain("API key must be");
+      expect(el.status.className).toBe("warning");
     });
 
     it("skips API key validation when provider does not require it", async () => {
@@ -395,17 +402,22 @@ describe("popup settings", () => {
       );
     });
 
-    it("validates base URL format", async () => {
+    it("warns about a malformed base URL but still saves unrelated fields", async () => {
       await loadPopup();
 
+      el.overlayEnabled.checked = false;
       el.apiKey.value = "sk-valid-test-key-123";
       el.baseUrl.value = "not-a-url";
       el.saveBtn.click();
 
       await vi.waitFor(() =>
-        expect(el.status.textContent).toContain("Base URL must start with"),
+        expect(chrome.storage.sync.set).toHaveBeenCalled(),
       );
-      expect(el.status.className).toBe("error");
+      const saved = mock(chrome.storage.sync.set).mock.calls[0][0];
+      expect(saved.overlayEnabled).toBe(false);
+
+      expect(el.status.textContent).toContain("Base URL must start with");
+      expect(el.status.className).toBe("warning");
     });
 
     it("accepts valid base URL with http", async () => {
@@ -706,17 +718,21 @@ describe("popup settings", () => {
       expect(el.status.textContent).toBe("Settings saved.");
     });
 
-    it("still validates API key when toggle is on (existing behavior preserved)", async () => {
+    it("warns about a too-short API key when toggle is on but does not block save", async () => {
       await loadPopup();
 
       // llmEnabled defaults to true; provider openai requires a key.
+      // The save must still go through so other settings aren't held
+      // hostage by an in-progress API key entry; the warning flags
+      // that AI Translations specifically won't work yet.
       el.apiKey.value = "abc";
       el.saveBtn.click();
 
       await vi.waitFor(() =>
-        expect(el.status.textContent).toContain("API key must be"),
+        expect(chrome.storage.sync.set).toHaveBeenCalled(),
       );
-      expect(chrome.storage.sync.set).not.toHaveBeenCalled();
+      expect(el.status.textContent).toContain("API key must be");
+      expect(el.status.className).toBe("warning");
     });
 
     it("info popover toggles open/closed on info button click", async () => {

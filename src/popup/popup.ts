@@ -255,11 +255,13 @@ function setInfoPopoverOpen(
 // ─── Validation ─────────────────────────────────────────────────────
 
 /**
- * Returns an error string if inputs are invalid, or null if everything
- * checks out. Validates API key length for providers that require one
- * (only when AI Translations is enabled -- a key is meaningless when
- * the feature is off, and we still preserve any previously-entered
- * value), and base URL prefix.
+ * Returns a warning string if the AI-translation-related inputs look
+ * unusable, or null if everything checks out. The result is advisory
+ * only -- Save persists settings unconditionally so unrelated fields
+ * (overlay, TTS, theme, etc.) aren't held hostage by an in-progress
+ * API key or URL. A partial key/URL is no worse than the existing
+ * empty-key path; the LLM call will simply fail with a clear runtime
+ * error until the user finishes typing.
  */
 function validateInputs(els: ReturnType<typeof getElements>): string | null {
   const provider = els.provider.value as LLMProvider;
@@ -309,18 +311,21 @@ function readFormValues(els: ReturnType<typeof getElements>): ExtensionSettings 
   };
 }
 
-/** Shows a timed status message (green success or red error). */
+/** Shows a timed status message (green success, red error, amber warning). */
 function showStatus(
   el: HTMLDivElement,
   message: string,
-  type: "success" | "error",
+  type: "success" | "error" | "warning",
 ): void {
   el.textContent = message;
   el.className = type;
+  // Warnings stay longer so users have time to read the explanation
+  // of why the AI portion of the save was incomplete.
+  const ms = type === "warning" ? 4500 : 2000;
   setTimeout(() => {
     el.textContent = "";
     el.className = "";
-  }, 2000);
+  }, ms);
 }
 
 // ─── Vocab Card ─────────────────────────────────────────────────────
@@ -548,16 +553,23 @@ export async function initPopup(): Promise<void> {
   });
 
   els.saveBtn.addEventListener("click", async () => {
-    const error = validateInputs(els);
-    if (error) {
-      showStatus(els.status, error, "error");
-      return;
-    }
-
+    // Validation is advisory: a malformed API key or base URL only
+    // breaks AI Translations, so we still persist every field so
+    // unrelated settings (overlay, TTS, theme, font size, pinyin
+    // style) aren't blocked by an in-progress LLM config.
+    const warning = validateInputs(els);
     const values = readFormValues(els);
     await chrome.storage.sync.set(values);
     applyTheme(values.theme);
-    showStatus(els.status, "Settings saved.", "success");
+    if (warning) {
+      showStatus(
+        els.status,
+        `Settings saved. AI Translations won’t work until fixed: ${warning}`,
+        "warning",
+      );
+    } else {
+      showStatus(els.status, "Settings saved.", "success");
+    }
   });
 
   // ─── Tab switching ───────────────────────────────────────────

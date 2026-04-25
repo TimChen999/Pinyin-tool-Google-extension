@@ -437,6 +437,11 @@ hr.section-divider {
   color: #991b1b;
 }
 
+#status.warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 /* ─── OCR button ─────────────────────────────────────────────── */
 
 #ocr-btn {
@@ -750,6 +755,11 @@ body[data-theme="dark"] #status.error {
   color: #fca5a5;
 }
 
+body[data-theme="dark"] #status.warning {
+  background: #78350f;
+  color: #fcd34d;
+}
+
 body[data-theme="dark"] .tab-bar {
   border-bottom-color: #374151;
 }
@@ -991,6 +1001,11 @@ body[data-theme="sepia"] #status.success {
 body[data-theme="sepia"] #status.error {
   background: #f5d6cb;
   color: #92400e;
+}
+
+body[data-theme="sepia"] #status.warning {
+  background: #f0e2b4;
+  color: #7a4f10;
 }
 
 body[data-theme="sepia"] .tab-bar {
