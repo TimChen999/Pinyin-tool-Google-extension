@@ -170,6 +170,16 @@ export const KEEPALIVE_PORT_NAME = "llm-keepalive";
 /** Texts longer than this are truncated before sending to the LLM. (SPEC.md Section 10.2) */
 export const MAX_SELECTION_LENGTH = 500;
 /**
+ * Hard cap on the number of unique Chinese segments translated per
+ * selection in the on-device fallback path (used when the user has
+ * AI Translations turned off). The full-sentence translation is
+ * always done; per-segment glosses cap out here so a long passage
+ * doesn't queue hundreds of Translator.translate() calls. Sized to
+ * comfortably cover a typical 500-char (MAX_SELECTION_LENGTH)
+ * selection while still being a clear upper bound.
+ */
+export const MAX_FALLBACK_SEGMENTS = 50;
+/**
  * Hard cap on the surrounding-context string sent to the LLM.
  * Used by sentenceContextAround() as the absolute upper bound after
  * sentence-boundary trimming, keeping prefill latency predictable.

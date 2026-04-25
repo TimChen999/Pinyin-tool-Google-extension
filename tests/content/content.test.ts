@@ -21,6 +21,7 @@ import { mock } from "../test-helpers";
 // ─── Mock overlay module so we can spy on calls without DOM side effects ──
 const mockShowOverlay = vi.fn();
 const mockUpdateOverlay = vi.fn();
+const mockUpdateOverlayFallback = vi.fn();
 const mockShowOverlayError = vi.fn();
 const mockShowTruncationNotice = vi.fn();
 const mockDismissOverlay = vi.fn();
@@ -31,6 +32,7 @@ const mockSetOverlayContext = vi.fn();
 vi.mock("../../src/content/overlay", () => ({
   showOverlay: mockShowOverlay,
   updateOverlay: mockUpdateOverlay,
+  updateOverlayFallback: mockUpdateOverlayFallback,
   showOverlayError: mockShowOverlayError,
   showTruncationNotice: mockShowTruncationNotice,
   dismissOverlay: mockDismissOverlay,
@@ -134,10 +136,19 @@ describe("content script", () => {
     );
   }
 
+  /** Mutates the content script's cached llmEnabled flag. */
+  function setLlmEnabled(value: boolean): void {
+    storageChangeListener?.(
+      { llmEnabled: { newValue: value } },
+      "sync",
+    );
+  }
+
   beforeEach(() => {
     vi.useFakeTimers();
     mockShowOverlay.mockClear();
     mockUpdateOverlay.mockClear();
+    mockUpdateOverlayFallback.mockClear();
     mockShowOverlayError.mockClear();
     mockShowTruncationNotice.mockClear();
     mockDismissOverlay.mockClear();
@@ -161,6 +172,10 @@ describe("content script", () => {
     // Reset overlayEnabled so a test that disabled it does not leak
     // into the next case (the module-level cache lives across tests).
     setOverlayEnabled(true);
+    // Same hygiene for llmEnabled -- the cached flag survives across
+    // tests via the module-level closure, so any case that flipped it
+    // off needs an explicit reset here.
+    setLlmEnabled(true);
   });
 
   // ─── mouseup handler ───────────────────────────────────────────
@@ -662,6 +677,320 @@ describe("content script", () => {
         word,
         example: { sentence: goodContext },
       });
+    });
+  });
+
+  // ─── Non-LLM on-device translator fallback ─────────────────────
+  //
+  // The fallback runs entirely in the content script's main world via
+  // Chrome's globalThis.Translator. These tests stub the API directly
+  // and toggle the cached llmEnabled flag through the storage event
+  // path so we can verify the gating + the two-phase paint without
+  // actually hitting the real Translator (which jsdom doesn't have).
+  describe("non-LLM fallback", () => {
+    function setTranslator(impl: unknown): void {
+      (globalThis as { Translator?: unknown }).Translator = impl as never;
+    }
+
+    function clearTranslator(): void {
+      delete (globalThis as { Translator?: unknown }).Translator;
+    }
+
+    /**
+     * The on-device wrapper caches the Translator instance per
+     * importing context. content.ts and the test file both pull from
+     * the same module record, so we reset it between cases to keep
+     * "Translator missing" / "create() rejects" / "happy path" tests
+     * isolated.
+     */
+    async function resetTranslatorCache(): Promise<void> {
+      const mod = await import("../../src/shared/translate-example");
+      mod._resetForTests();
+    }
+
+    /**
+     * Drives a single mouseup-triggered selection through the content
+     * script with the supplied selection text and returns once both
+     * the PINYIN_RESPONSE_LOCAL callback (synchronous via the mocked
+     * sendMessage) and any awaited fallback work have settled.
+     */
+    async function runMouseupWith(text: string): Promise<void> {
+      vi.spyOn(window, "getSelection").mockReturnValue(fakeSelection(text));
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      vi.advanceTimersByTime(DEBOUNCE_MS + 50);
+      // Drain the microtask queue (and any timer-resolved promises) so
+      // the fallback's awaited translate() calls resolve before the
+      // assertion runs.
+      vi.useRealTimers();
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+    }
+
+    beforeEach(async () => {
+      // The shared sendMessage stub from the parent describe replies
+      // with a 1-segment response by default; the fallback tests need
+      // a multi-segment response so per-segment translation paths get
+      // exercised. Override locally.
+      mock(chrome.runtime.sendMessage).mockReset();
+      mock(chrome.runtime.sendMessage).mockImplementation(
+        (_msg: unknown, cb?: Function) => {
+          if (cb) {
+            cb({
+              type: "PINYIN_RESPONSE_LOCAL",
+              words: [
+                { chars: "我", pinyin: "wǒ" },
+                { chars: "学习", pinyin: "xué xí" },
+                { chars: "中文", pinyin: "zhōng wén" },
+              ],
+            });
+          }
+        },
+      );
+      await resetTranslatorCache();
+      mockUpdateOverlayFallback.mockClear();
+    });
+
+    afterEach(() => {
+      clearTranslator();
+    });
+
+    it("does NOT run the fallback when llmEnabled is true (LLM path takes precedence)", async () => {
+      const translate = vi.fn(async (s: string) => `EN(${s})`);
+      const create = vi.fn(async () => ({ translate }));
+      setTranslator({
+        availability: vi.fn(async () => "available"),
+        create,
+      });
+      // Default state has llmEnabled=true; be explicit here for clarity.
+      setLlmEnabled(true);
+
+      await runMouseupWith("我学习中文");
+
+      expect(create).not.toHaveBeenCalled();
+      expect(translate).not.toHaveBeenCalled();
+      expect(mockUpdateOverlayFallback).not.toHaveBeenCalled();
+    });
+
+    it("does NOT run the fallback when llmEnabled is false but Translator API is missing", async () => {
+      // When the API isn't there, the showOverlay loading-row decision
+      // also flips off so the user doesn't see a perpetual spinner.
+      clearTranslator();
+      setLlmEnabled(false);
+
+      await runMouseupWith("我学习中文");
+
+      expect(mockUpdateOverlayFallback).not.toHaveBeenCalled();
+      // showOverlay's "expectTranslation" param (5th arg) should be
+      // false in this branch -- nothing will fill the row.
+      const args = mockShowOverlay.mock.calls[0];
+      expect(args[4]).toBe(false);
+    });
+
+    it("runs the fallback when llmEnabled is false and Translator is available", async () => {
+      const translate = vi.fn(async (s: string) => `EN(${s})`);
+      const create = vi.fn(async () => ({ translate }));
+      setTranslator({
+        availability: vi.fn(async () => "available"),
+        create,
+      });
+      setLlmEnabled(false);
+
+      await runMouseupWith("我学习中文");
+
+      // Full translation always called once; per-segment translations
+      // run in parallel after that, one per unique Chinese segment.
+      expect(translate).toHaveBeenCalledWith("我学习中文");
+      expect(translate).toHaveBeenCalledWith("我");
+      expect(translate).toHaveBeenCalledWith("学习");
+      expect(translate).toHaveBeenCalledWith("中文");
+
+      // Two-phase paint: Phase A uses the full translation with empty
+      // definitions, Phase B re-renders with per-segment glosses.
+      expect(mockUpdateOverlayFallback).toHaveBeenCalledTimes(2);
+
+      const phaseA = mockUpdateOverlayFallback.mock.calls[0];
+      expect(phaseA[1]).toBe("EN(我学习中文)");
+      expect(phaseA[0].every((w: { definition: string }) => w.definition === "")).toBe(true);
+
+      const phaseB = mockUpdateOverlayFallback.mock.calls[1];
+      expect(phaseB[1]).toBe("EN(我学习中文)");
+      const defs = (phaseB[0] as { chars: string; definition: string }[]).map(
+        (w) => [w.chars, w.definition],
+      );
+      expect(defs).toEqual([
+        ["我", "EN(我)"],
+        ["学习", "EN(学习)"],
+        ["中文", "EN(中文)"],
+      ]);
+    });
+
+    it("forwards the full-translation error to showOverlayError when create() rejects", async () => {
+      const create = vi.fn(async () => {
+        throw new Error("download blocked");
+      });
+      setTranslator({
+        availability: vi.fn(async () => "downloadable"),
+        create,
+      });
+      setLlmEnabled(false);
+
+      await runMouseupWith("我学习中文");
+
+      // The full translation failure short-circuits -- no fallback
+      // overlay paint, just the error row replacing the loading state.
+      expect(mockUpdateOverlayFallback).not.toHaveBeenCalled();
+      expect(mockShowOverlayError).toHaveBeenCalled();
+      const msg = mockShowOverlayError.mock.calls[0][0];
+      expect(typeof msg).toBe("string");
+      expect(msg.length).toBeGreaterThan(0);
+    });
+
+    it("reserves the translation row up front when fallback will run (expectTranslation=true)", async () => {
+      const translate = vi.fn(async (s: string) => `EN(${s})`);
+      const create = vi.fn(async () => ({ translate }));
+      setTranslator({
+        availability: vi.fn(async () => "available"),
+        create,
+      });
+      setLlmEnabled(false);
+
+      await runMouseupWith("我学习中文");
+
+      // 5th arg of showOverlay is the loading-row flag. With LLM off
+      // but Translator available, the fallback fills the row, so the
+      // flag must be true (otherwise the row is never injected and
+      // updateOverlayFallback has to create it after the fact).
+      const args = mockShowOverlay.mock.calls[0];
+      expect(args[4]).toBe(true);
+    });
+  });
+
+  // ─── OCR translator prewarm ────────────────────────────────────
+  describe("OCR translator prewarm", () => {
+    function setTranslator(impl: unknown): void {
+      (globalThis as { Translator?: unknown }).Translator = impl as never;
+    }
+
+    function clearTranslator(): void {
+      delete (globalThis as { Translator?: unknown }).Translator;
+    }
+
+    async function resetTranslatorCache(): Promise<void> {
+      const mod = await import("../../src/shared/translate-example");
+      mod._resetForTests();
+    }
+
+    beforeEach(async () => {
+      vi.useRealTimers();
+      await resetTranslatorCache();
+    });
+
+    afterEach(() => {
+      clearTranslator();
+    });
+
+    it("prewarms the on-device Translator after the OCR drag finishes when llmEnabled is false", async () => {
+      // Stub a Translator whose create() resolves successfully.
+      // Without prewarming the create() would only fire when the
+      // fallback runs after Tesseract finishes; here we assert it
+      // fires inside the OCR_START_SELECTION handler instead.
+      const translate = vi.fn(async (s: string) => `EN(${s})`);
+      const create = vi.fn(async () => ({ translate }));
+      setTranslator({
+        availability: vi.fn(async () => "available"),
+        create,
+      });
+      setLlmEnabled(false);
+
+      // Stub startOCRSelection so OCR_START_SELECTION resolves to a
+      // synthetic rect immediately, mimicking the user finishing a
+      // drag without us having to drive a real selection mask.
+      const ocrMod = await import("../../src/content/ocr-selection");
+      vi.spyOn(ocrMod, "startOCRSelection").mockResolvedValue({
+        x: 10,
+        y: 20,
+        width: 100,
+        height: 50,
+      });
+
+      // Trigger the SW -> content message that kicks off the OCR
+      // selection flow.
+      chrome.runtime.onMessage.callListeners(
+        { type: "OCR_START_SELECTION" },
+        {},
+        vi.fn(),
+      );
+
+      // Drain microtasks so handleOCRStartSelection's awaits resolve.
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Translator.create() ran during the OCR-start handler, BEFORE
+      // any actual translation happens, so the user's drag-mouseup
+      // activation is still valid for create()'s NotAllowedError gate.
+      expect(create).toHaveBeenCalledTimes(1);
+      // No translate() yet -- prewarm only sets up the instance.
+      expect(translate).not.toHaveBeenCalled();
+
+      // Restore.
+      setLlmEnabled(true);
+    });
+
+    it("does NOT prewarm when llmEnabled is true (LLM path will handle translation)", async () => {
+      const create = vi.fn(async () => ({
+        translate: vi.fn(async () => "ok"),
+      }));
+      setTranslator({
+        availability: vi.fn(async () => "available"),
+        create,
+      });
+      setLlmEnabled(true);
+
+      const ocrMod = await import("../../src/content/ocr-selection");
+      vi.spyOn(ocrMod, "startOCRSelection").mockResolvedValue({
+        x: 10,
+        y: 20,
+        width: 100,
+        height: 50,
+      });
+
+      chrome.runtime.onMessage.callListeners(
+        { type: "OCR_START_SELECTION" },
+        {},
+        vi.fn(),
+      );
+
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it("does NOT prewarm (or crash) when the Translator API is missing", async () => {
+      clearTranslator();
+      setLlmEnabled(false);
+
+      const ocrMod = await import("../../src/content/ocr-selection");
+      vi.spyOn(ocrMod, "startOCRSelection").mockResolvedValue({
+        x: 10,
+        y: 20,
+        width: 100,
+        height: 50,
+      });
+
+      // Just shouldn't throw and shouldn't try to call into a
+      // nonexistent global.
+      expect(() => {
+        chrome.runtime.onMessage.callListeners(
+          { type: "OCR_START_SELECTION" },
+          {},
+          vi.fn(),
+        );
+      }).not.toThrow();
+
+      await new Promise((r) => setTimeout(r, 0));
+
+      setLlmEnabled(true);
     });
   });
 });

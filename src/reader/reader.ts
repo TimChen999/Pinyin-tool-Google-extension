@@ -22,9 +22,12 @@ import {
 } from "../background/cache";
 import { containsChinese, sentenceContextAround } from "../shared/chinese-detect";
 import { handleVocabCapture } from "../shared/vocab-capture";
+import { isTranslatorAvailable } from "../shared/translate-example";
+import { runFallbackTranslation } from "../shared/fallback-translation";
 import {
   showOverlay,
   updateOverlay,
+  updateOverlayFallback,
   showOverlayError,
   dismissOverlay,
   setVocabCallback,
@@ -584,16 +587,38 @@ async function processSelection(
   const context = sentenceContextAround(visible, truncated);
   setOverlayContext(context);
 
+  // Mirror the content-script gate (see src/content/content.ts): when
+  // the user has AI Translations off, fall back to Chrome's on-device
+  // Translator API for both the full sentence and per-segment glosses.
+  // Loading row is reserved when either path will fill it, so the
+  // overlay's height doesn't jump from "pinyin only" to "pinyin +
+  // translation" mid-render.
+  const willUseFallback = !settings.llmEnabled && isTranslatorAvailable();
+  const expectTranslation = settings.llmEnabled || willUseFallback;
+
   showOverlay(
     words,
     rect,
     settings.theme,
     settings.ttsEnabled,
-    settings.llmEnabled,
+    expectTranslation,
     settings.fontSize,
   );
 
-  if (!settings.llmEnabled || !readerSettings.pinyinEnabled) return;
+  if (!readerSettings.pinyinEnabled) return;
+
+  if (!settings.llmEnabled) {
+    if (willUseFallback) {
+      await runFallbackTranslation(truncated, words, {
+        isStale: () => requestId !== currentRequestId,
+        onPaint: (enriched, translation) => {
+          updateOverlayFallback(enriched, translation, settings.ttsEnabled);
+        },
+        onError: (msg) => showOverlayError(msg),
+      });
+    }
+    return;
+  }
 
   const cacheKey = await hashText(truncated + context);
 
@@ -646,6 +671,7 @@ async function processSelection(
     showOverlayError(result.error.message);
   }
 }
+
 
 /**
  * Dedup wrapper around queryLLM that shares one in-flight Promise per

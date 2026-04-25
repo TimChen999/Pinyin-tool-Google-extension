@@ -25,6 +25,11 @@ import {
   RETRY_DELAYS_MS,
 } from "../shared/constants";
 import { handleVocabCapture } from "../shared/vocab-capture";
+import {
+  isTranslatorAvailable,
+  prewarmTranslator,
+} from "../shared/translate-example";
+import { runFallbackTranslation } from "../shared/fallback-translation";
 import type {
   ExtensionMessage,
   PinyinResponseLocal,
@@ -33,6 +38,7 @@ import type {
 import {
   showOverlay,
   updateOverlay,
+  updateOverlayFallback,
   showOverlayError,
   showTruncationNotice,
   dismissOverlay,
@@ -189,9 +195,25 @@ function processSelection(text: string, rect: DOMRect, context: string): void {
 
   const requestId = ++currentRequestId;
 
+  // The on-device fallback runs only when the LLM-backed Phase-2 path
+  // is disabled AND Chrome's Translator API is present. Computed once
+  // up front so the overlay's loading-row decision and the post-render
+  // dispatch agree on the same answer.
+  const willUseFallback = !cachedLlmEnabled && isTranslatorAvailable();
+  // Reserve the translation row whenever something will fill it -- the
+  // LLM path or the fallback. Without this the fallback would have to
+  // inject a row after the fact (it does, defensively, but we'd rather
+  // pay the layout cost up front so the user doesn't see a jump).
+  const expectTranslation = cachedLlmEnabled || willUseFallback;
+
   // Open the keep-alive port *before* sending so the SW can't go idle
-  // between sendMessage and the start of its async LLM path.
-  openKeepalivePort(requestId);
+  // between sendMessage and the start of its async LLM path. Skipped
+  // when the LLM path is disabled: the fallback runs entirely in the
+  // content script's main world (Chrome's Translator API is page-side)
+  // so the SW has nothing long-running to keep alive in that case.
+  if (cachedLlmEnabled) {
+    openKeepalivePort(requestId);
+  }
 
   chrome.runtime.sendMessage(
     {
@@ -220,10 +242,27 @@ function processSelection(text: string, rect: DOMRect, context: string): void {
         rect,
         cachedTheme,
         cachedTtsEnabled,
-        cachedLlmEnabled,
+        expectTranslation,
         cachedFontSize,
       );
       if (wasTruncated) showTruncationNotice();
+
+      // Non-LLM fallback: ship the same selection through Chrome's
+      // built-in Translator API for both a full-sentence translation
+      // and per-segment glosses. The service worker won't send any
+      // PINYIN_RESPONSE_LLM in this branch (handleLLMPath bails on
+      // !llmEnabled), so this is the only Phase-2 source. The shared
+      // helper handles dedup, the two-phase paint, and the requestId
+      // staleness check; we just supply the overlay-side callbacks.
+      if (willUseFallback) {
+        void runFallbackTranslation(truncated, response.words, {
+          isStale: () => requestId !== currentRequestId,
+          onPaint: (enriched, translation) => {
+            updateOverlayFallback(enriched, translation, cachedTtsEnabled);
+          },
+          onError: (msg) => showOverlayError(msg),
+        });
+      }
     },
   );
 }
@@ -364,6 +403,20 @@ function getSelectionRect(selection: Selection | null): DOMRect {
 async function handleOCRStartSelection(): Promise<void> {
   const rect = await startOCRSelection();
   if (!rect) return;
+
+  // Prewarm the on-device Translator while OCR is running. Tesseract
+  // recognition typically takes seconds, by which time the user's
+  // drag-mouseup-acquired transient activation has expired and a
+  // fresh Translator.create() would throw NotAllowedError. Calling
+  // prewarmTranslator() here -- still inside the synchronous tail of
+  // the user's mouseup -- captures the activation and stashes the
+  // resulting instance in the module cache, so the eventual fallback
+  // translate() call in processSelection() reuses it without paying
+  // the activation cost again. Fire-and-forget on purpose: the real
+  // failure (if any) is surfaced by translateChineseToEnglish later.
+  if (!cachedLlmEnabled && isTranslatorAvailable()) {
+    void prewarmTranslator();
+  }
 
   pendingOCRRect = rect;
   chrome.runtime.sendMessage({

@@ -188,3 +188,159 @@ describe("translateExampleSentence", () => {
     expect(create).toHaveBeenCalledTimes(1);
   });
 });
+
+// ─── Generalised wrapper + prewarm (used by the non-LLM fallback) ──
+
+describe("translateChineseToEnglish (alias)", () => {
+  beforeEach(() => {
+    clearTranslator();
+  });
+
+  afterEach(() => {
+    clearTranslator();
+    vi.restoreAllMocks();
+  });
+
+  it("is the same function as translateExampleSentence (back-compat alias)", async () => {
+    const { translateChineseToEnglish, translateExampleSentence } =
+      await loadModule();
+    expect(translateChineseToEnglish).toBe(translateExampleSentence);
+  });
+
+  it("translates arbitrary Chinese text via the on-device Translator", async () => {
+    const translate = vi.fn(async (s: string) => `EN(${s})`);
+    const create = vi.fn(async () => ({ translate }));
+    const availability = vi.fn(async () => "available");
+    setTranslator({ availability, create });
+
+    const { translateChineseToEnglish } = await loadModule();
+    const result = await translateChineseToEnglish("学习");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.translation).toBe("EN(学习)");
+    }
+    expect(translate).toHaveBeenCalledWith("学习");
+  });
+});
+
+describe("isTranslatorAvailable", () => {
+  beforeEach(() => {
+    clearTranslator();
+  });
+
+  afterEach(() => {
+    clearTranslator();
+  });
+
+  it("returns false when the Translator API is missing", async () => {
+    const { isTranslatorAvailable } = await loadModule();
+    expect(isTranslatorAvailable()).toBe(false);
+  });
+
+  it("returns true when globalThis.Translator is present", async () => {
+    // Shape doesn't matter for the synchronous feature check -- only
+    // the typeof !== "undefined" branch.
+    setTranslator({ availability: vi.fn(), create: vi.fn() });
+    const { isTranslatorAvailable } = await loadModule();
+    expect(isTranslatorAvailable()).toBe(true);
+  });
+});
+
+describe("prewarmTranslator", () => {
+  beforeEach(() => {
+    clearTranslator();
+  });
+
+  afterEach(() => {
+    clearTranslator();
+    vi.restoreAllMocks();
+  });
+
+  it("is a no-op when the Translator API is missing", async () => {
+    const { prewarmTranslator, translateChineseToEnglish } = await loadModule();
+
+    // Doesn't throw and returns void.
+    await expect(prewarmTranslator()).resolves.toBeUndefined();
+
+    // After a no-op prewarm, the next translateChineseToEnglish() still
+    // surfaces UNAVAILABLE -- the cache wasn't poisoned by anything.
+    const result = await translateChineseToEnglish("我");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("UNAVAILABLE");
+    }
+  });
+
+  it("kicks off Translator.create() exactly once, even when followed by a translate() call", async () => {
+    const translate = vi.fn(async () => "ok");
+    const create = vi.fn(async () => ({ translate }));
+    const availability = vi.fn(async () => "available");
+    setTranslator({ availability, create });
+
+    const { prewarmTranslator, translateChineseToEnglish } = await loadModule();
+
+    await prewarmTranslator();
+    expect(create).toHaveBeenCalledTimes(1);
+
+    // The follow-up translate call reuses the prewarmed instance --
+    // create() is NOT invoked a second time. This is the whole point
+    // of prewarming: capture the user activation early, reuse later.
+    const result = await translateChineseToEnglish("银行");
+    expect(result.ok).toBe(true);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(translate).toHaveBeenCalledWith("银行");
+  });
+
+  it("clears the cache when create() rejects so the next call retries from scratch", async () => {
+    let attempts = 0;
+    const translate = vi.fn(async () => "second time");
+    const create = vi.fn(async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("blocked first time");
+      return { translate };
+    });
+    const availability = vi.fn(async () => "available");
+    setTranslator({ availability, create });
+
+    const { prewarmTranslator, translateChineseToEnglish } = await loadModule();
+
+    // The prewarm itself swallows the error -- it's fire-and-forget.
+    await expect(prewarmTranslator()).resolves.toBeUndefined();
+    expect(create).toHaveBeenCalledTimes(1);
+
+    // The next real translate() call gets a fresh create() rather than
+    // replaying the cached rejection.
+    const result = await translateChineseToEnglish("成功");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.translation).toBe("second time");
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("coalesces concurrent prewarm + translate() onto a single create() promise", async () => {
+    let resolveCreate: ((value: unknown) => void) | null = null;
+    const translate = vi.fn(async () => "ok");
+    const create = vi.fn(
+      () => new Promise((r) => (resolveCreate = r as typeof resolveCreate)),
+    );
+    const availability = vi.fn(async () => "available");
+    setTranslator({ availability, create });
+
+    const { prewarmTranslator, translateChineseToEnglish } = await loadModule();
+
+    const prewarmP = prewarmTranslator();
+    const translateP = translateChineseToEnglish("一");
+
+    // Allow microtasks to advance both calls into their `await` of the
+    // shared create() promise.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(create).toHaveBeenCalledTimes(1);
+
+    resolveCreate!({ translate });
+    await Promise.all([prewarmP, translateP]);
+
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(translate).toHaveBeenCalledTimes(1);
+  });
+});

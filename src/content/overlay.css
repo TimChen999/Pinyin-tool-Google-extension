@@ -292,6 +292,25 @@
   font-style: italic;
 }
 
+/* ─── Fallback translation note ──────────────────────────────── */
+/* Small italic suffix on definition cards when the gloss came from
+   Chrome's on-device Translator (no LLM tokens, no API key). The
+   visual cue keeps users from confusing a literal word translation
+   with the context-aware definitions the LLM path provides. */
+.hg-fallback-note {
+  color: #9ca3af;
+  font-style: italic;
+  font-size: 0.85em;
+}
+
+.hg-overlay.hg-dark .hg-fallback-note {
+  color: #6b7280;
+}
+
+.hg-overlay.hg-sepia .hg-fallback-note {
+  color: #8b7355;
+}
+
 /* ─── Truncation notice (shown when selection exceeded 500 chars) ─ */
 .hg-truncation-notice {
   margin-top: 8px;

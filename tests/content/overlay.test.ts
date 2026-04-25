@@ -16,6 +16,7 @@ import {
   createOverlay,
   showOverlay,
   updateOverlay,
+  updateOverlayFallback,
   showOverlayError,
   dismissOverlay,
   renderRubyText,
@@ -329,6 +330,137 @@ describe("overlay", () => {
 
       expect(() =>
         updateOverlay(
+          [{ chars: "好", pinyin: "hǎo", definition: "good" }],
+          "Good.",
+        ),
+      ).not.toThrow();
+    });
+  });
+
+  // ─── updateOverlayFallback (non-LLM on-device translator) ─────
+  describe("updateOverlayFallback", () => {
+    it("paints the full translation into the .hg-translation row", () => {
+      const words: WordData[] = [{ chars: "好", pinyin: "hǎo" }];
+      showOverlay(words, makeDOMRect(100, 200, 100, 20), "light");
+
+      updateOverlayFallback(
+        [{ chars: "好", pinyin: "hǎo", definition: "good" }],
+        "Good.",
+      );
+
+      const host = document.getElementById("hg-extension-root");
+      const shadow = host!.shadowRoot!;
+      expect(shadow.querySelector(".hg-loading")).toBeNull();
+      const translation = shadow.querySelector(".hg-translation");
+      expect(translation!.textContent).toBe("Good.");
+    });
+
+    it("tags the translation row with .hg-translation-fallback so styling can differentiate", () => {
+      const words: WordData[] = [{ chars: "好", pinyin: "hǎo" }];
+      showOverlay(words, makeDOMRect(100, 200, 100, 20), "light");
+
+      updateOverlayFallback(
+        [{ chars: "好", pinyin: "hǎo", definition: "good" }],
+        "Good.",
+      );
+
+      const host = document.getElementById("hg-extension-root");
+      const translation = host!.shadowRoot!.querySelector(".hg-translation");
+      expect(translation!.classList.contains("hg-translation-fallback")).toBe(true);
+    });
+
+    it("creates the translation row on the fly when Phase 1 omitted it", () => {
+      // showOverlay with llmEnabled=false does NOT inject the .hg-translation
+      // row. The fallback path needs to add it itself, since the caller
+      // didn't know fallback would run when showOverlay was called.
+      const words: WordData[] = [{ chars: "好", pinyin: "hǎo" }];
+      showOverlay(words, makeDOMRect(100, 200, 100, 20), "light", false, false);
+
+      const host = document.getElementById("hg-extension-root");
+      const shadow = host!.shadowRoot!;
+      expect(shadow.querySelector(".hg-translation")).toBeNull();
+
+      updateOverlayFallback(
+        [{ chars: "好", pinyin: "hǎo", definition: "good" }],
+        "Good.",
+      );
+
+      const translation = shadow.querySelector(".hg-translation");
+      expect(translation).not.toBeNull();
+      expect(translation!.textContent).toBe("Good.");
+    });
+
+    it("marks each ruby with data-source='fallback' so the click handler labels cards as translations", () => {
+      const words: WordData[] = [{ chars: "好", pinyin: "hǎo" }];
+      showOverlay(words, makeDOMRect(100, 200, 100, 20), "light");
+
+      updateOverlayFallback(
+        [{ chars: "好", pinyin: "hǎo", definition: "good" }],
+        "Good.",
+      );
+
+      const host = document.getElementById("hg-extension-root");
+      const word = host!.shadowRoot!.querySelector(".hg-word") as HTMLElement;
+      expect(word.getAttribute("data-source")).toBe("fallback");
+    });
+
+    it("clicking a fallback word shows a card suffixed with the (translation) note", () => {
+      const words: WordData[] = [{ chars: "学习", pinyin: "xué xí" }];
+      showOverlay(words, makeDOMRect(100, 200, 100, 20), "light");
+
+      updateOverlayFallback(
+        [{ chars: "学习", pinyin: "xué xí", definition: "to study" }],
+        "I study Chinese.",
+      );
+
+      const host = document.getElementById("hg-extension-root");
+      const shadow = host!.shadowRoot!;
+      const word = shadow.querySelector(".hg-word") as HTMLElement;
+      word.click();
+
+      const card = shadow.querySelector(".hg-definition-card");
+      expect(card).not.toBeNull();
+      // The base text is the same chars-em-dash-definition layout the
+      // LLM cards use; only the suffix label distinguishes them.
+      expect(card!.textContent).toContain("学习");
+      expect(card!.textContent).toContain("to study");
+      const note = card!.querySelector(".hg-fallback-note");
+      expect(note).not.toBeNull();
+      expect(note!.textContent).toContain("translation");
+    });
+
+    it("LLM-rendered cards do NOT show the fallback note", () => {
+      // Sanity check that the source discriminator is actually doing
+      // its job and the note is only added in the fallback path.
+      showOverlay(
+        [{ chars: "学习", pinyin: "xué xí" }],
+        makeDOMRect(100, 200, 100, 20),
+        "light",
+      );
+      updateOverlay(
+        [{ chars: "学习", pinyin: "xué xí", definition: "to study (in school)" }],
+        "I study at school.",
+      );
+
+      const host = document.getElementById("hg-extension-root");
+      const shadow = host!.shadowRoot!;
+      const word = shadow.querySelector(".hg-word") as HTMLElement;
+      word.click();
+
+      const card = shadow.querySelector(".hg-definition-card");
+      expect(card!.querySelector(".hg-fallback-note")).toBeNull();
+    });
+
+    it("does nothing if overlay has been dismissed", () => {
+      showOverlay(
+        [{ chars: "好", pinyin: "hǎo" }],
+        makeDOMRect(100, 200, 100, 20),
+        "light",
+      );
+      dismissOverlay();
+
+      expect(() =>
+        updateOverlayFallback(
           [{ chars: "好", pinyin: "hǎo", definition: "good" }],
           "Good.",
         ),

@@ -194,6 +194,51 @@ export function updateOverlay(
 }
 
 /**
+ * Phase 2 update for the non-LLM fallback path: full sentence
+ * translation from Chrome's on-device Translator API in the
+ * `.hg-translation` row, and per-segment translations surfaced via
+ * the same definition-card mechanism that LLM definitions use.
+ *
+ * Visually almost identical to updateOverlay() with two intentional
+ * differences:
+ *  - Each ruby is tagged with `data-source="fallback"` so the click
+ *    handler labels the popped card as a "Translation" rather than
+ *    a contextual definition; the on-device API doesn't disambiguate
+ *    senses the way the LLM does and we don't want to mislead the
+ *    user about the depth of analysis.
+ *  - The translation row is created on the fly if Phase 1 omitted it
+ *    (e.g. when llmEnabled was false at showOverlay() time and the
+ *    caller didn't expect the fallback path to be available).
+ */
+export function updateOverlayFallback(
+  words: Required<WordData>[],
+  translation: string,
+  ttsEnabled = false,
+): void {
+  if (!shadowRoot) return;
+
+  const overlay = shadowRoot.querySelector(".hg-overlay");
+  if (!overlay) return;
+
+  const pinyinRow = overlay.querySelector(".hg-pinyin-row");
+  if (pinyinRow) {
+    pinyinRow.innerHTML = renderRubyText(words, "fallback");
+    attachWordClickHandlers(pinyinRow as HTMLElement, overlay as HTMLElement);
+    appendTtsButton(pinyinRow as HTMLElement, words, ttsEnabled);
+  }
+
+  let translationEl = overlay.querySelector(".hg-translation");
+  if (!translationEl) {
+    translationEl = document.createElement("div");
+    translationEl.className = "hg-translation";
+    overlay.appendChild(translationEl);
+  }
+  translationEl.classList.remove("hg-loading");
+  translationEl.classList.add("hg-translation-fallback");
+  translationEl.textContent = translation;
+}
+
+/**
  * Replaces the Phase 1 loading indicator with an error message.
  * The overlay keeps its local pinyin from Phase 1; only the
  * translation area is affected. Used when the LLM call fails
@@ -244,17 +289,28 @@ export function dismissOverlay(): void {
  * Converts a WordData array into an HTML string of <ruby> elements.
  * Each word carries data attributes for the click-to-define handler.
  * Returns empty string for an empty array.
+ *
+ * `source` discriminates LLM definitions from on-device fallback
+ * translations: when set to "fallback" each ruby gains a
+ * `data-source="fallback"` attribute that the click handler reads
+ * to label the popped card as a translation rather than a
+ * contextual definition.
  * (SPEC.md Section 7 "Ruby annotation HTML structure")
  */
-export function renderRubyText(words: WordData[]): string {
+export function renderRubyText(
+  words: WordData[],
+  source: "llm" | "fallback" = "llm",
+): string {
   if (words.length === 0) return "";
+
+  const sourceAttr = source === "fallback" ? ` data-source="fallback"` : "";
 
   return words
     .map((w) => {
       const defAttr = w.definition
         ? ` data-definition="${escapeAttr(w.definition)}"`
         : "";
-      return `<ruby class="hg-word" data-chars="${escapeAttr(w.chars)}" data-pinyin="${escapeAttr(w.pinyin)}"${defAttr}>${escapeHtml(w.chars)}<rt>${escapeHtml(w.pinyin)}</rt></ruby>`;
+      return `<ruby class="hg-word" data-chars="${escapeAttr(w.chars)}" data-pinyin="${escapeAttr(w.pinyin)}"${defAttr}${sourceAttr}>${escapeHtml(w.chars)}<rt>${escapeHtml(w.pinyin)}</rt></ruby>`;
     })
     .join("");
 }
@@ -408,6 +464,13 @@ function attachWordClickHandlers(
  * Toggles a definition card below the clicked word. If the card is
  * already visible for this word, removes it. Otherwise creates a new
  * card with the word's data-definition content.
+ *
+ * When the ruby was rendered with `data-source="fallback"` (i.e. the
+ * gloss came from Chrome's on-device Translator, not the LLM), the
+ * card carries a small "(translation)" note so the user understands
+ * they're seeing a literal word translation, not a context-aware
+ * definition. The "+ Vocab" button still appears so the word can be
+ * saved with the gloss as its definition.
  */
 function handleWordClick(wordEl: HTMLElement, overlay: HTMLElement): void {
   const definition = wordEl.getAttribute("data-definition");
@@ -415,6 +478,7 @@ function handleWordClick(wordEl: HTMLElement, overlay: HTMLElement): void {
 
   const chars = wordEl.getAttribute("data-chars") ?? "";
   const pinyin = wordEl.getAttribute("data-pinyin") ?? "";
+  const isFallback = wordEl.getAttribute("data-source") === "fallback";
 
   const existingCard = overlay.querySelector(".hg-definition-card");
   if (
@@ -433,6 +497,13 @@ function handleWordClick(wordEl: HTMLElement, overlay: HTMLElement): void {
 
   const textNode = document.createTextNode(`${chars} — ${definition}`);
   card.appendChild(textNode);
+
+  if (isFallback) {
+    const note = document.createElement("span");
+    note.className = "hg-fallback-note";
+    note.textContent = " (translation)";
+    card.appendChild(note);
+  }
 
   if (vocabCallback) {
     const btn = document.createElement("button");
