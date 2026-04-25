@@ -754,7 +754,7 @@ describe("content script", () => {
       clearTranslator();
     });
 
-    it("does NOT run the fallback when llmEnabled is true (LLM path takes precedence)", async () => {
+    it("when llmEnabled is true, runs only the full quick preview (no segment glosses)", async () => {
       const translate = vi.fn(async (s: string) => `EN(${s})`);
       const create = vi.fn(async () => ({ translate }));
       setTranslator({
@@ -766,8 +766,59 @@ describe("content script", () => {
 
       await runMouseupWith("我学习中文");
 
-      expect(create).not.toHaveBeenCalled();
-      expect(translate).not.toHaveBeenCalled();
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(translate).toHaveBeenCalledTimes(1);
+      expect(translate).toHaveBeenCalledWith("我学习中文");
+      expect(translate).not.toHaveBeenCalledWith("我");
+      expect(translate).not.toHaveBeenCalledWith("学习");
+      expect(translate).not.toHaveBeenCalledWith("中文");
+
+      expect(mockUpdateOverlayFallback).toHaveBeenCalledTimes(1);
+      const preview = mockUpdateOverlayFallback.mock.calls[0];
+      expect(preview[1]).toBe("EN(我学习中文)");
+      expect(preview[0].every((w: { definition: string }) => w.definition === "")).toBe(true);
+    });
+
+    it("does not let a late quick preview overwrite an already-rendered LLM response", async () => {
+      let resolveTranslate: ((value: string) => void) | null = null;
+      const translate = vi.fn(
+        () => new Promise<string>((resolve) => {
+          resolveTranslate = resolve;
+        }),
+      );
+      const create = vi.fn(async () => ({ translate }));
+      setTranslator({
+        availability: vi.fn(async () => "available"),
+        create,
+      });
+      setLlmEnabled(true);
+
+      vi.spyOn(window, "getSelection").mockReturnValue(fakeSelection("我学习中文"));
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      vi.advanceTimersByTime(DEBOUNCE_MS + 50);
+      vi.useRealTimers();
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(translate).toHaveBeenCalledWith("我学习中文");
+
+      chrome.runtime.onMessage.callListeners(
+        {
+          type: "PINYIN_RESPONSE_LLM",
+          words: [{ chars: "我", pinyin: "wǒ", definition: "I; me" }],
+          translation: "I study Chinese.",
+        },
+        {},
+        vi.fn(),
+      );
+
+      resolveTranslate!("EN(我学习中文)");
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(mockUpdateOverlay).toHaveBeenCalledWith(
+        [{ chars: "我", pinyin: "wǒ", definition: "I; me" }],
+        "I study Chinese.",
+        true,
+      );
       expect(mockUpdateOverlayFallback).not.toHaveBeenCalled();
     });
 

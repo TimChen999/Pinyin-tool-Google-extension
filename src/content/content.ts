@@ -28,6 +28,7 @@ import { handleVocabCapture } from "../shared/vocab-capture";
 import {
   isTranslatorAvailable,
   prewarmTranslator,
+  translateChineseToEnglish,
 } from "../shared/translate-example";
 import { runFallbackTranslation } from "../shared/fallback-translation";
 import type {
@@ -51,6 +52,9 @@ import { startOCRSelection } from "./ocr-selection";
 
 /** Monotonic counter to discard responses from superseded requests. */
 let currentRequestId = 0;
+
+/** Increments when an LLM phase completes, so quick previews can't overwrite it. */
+let llmPhaseSequence = 0;
 
 /** Cached theme setting so each overlay doesn't need a storage read. */
 let cachedTheme: Theme = "auto";
@@ -262,8 +266,44 @@ function processSelection(text: string, rect: DOMRect, context: string): void {
           },
           onError: (msg) => showOverlayError(msg),
         });
+      } else if (cachedLlmEnabled && isTranslatorAvailable()) {
+        void runQuickTranslationPreview(
+          truncated,
+          response.words,
+          requestId,
+          llmPhaseSequence,
+        );
       }
     },
+  );
+}
+
+/**
+ * LLM-mode quick preview: translate only the full selected text with
+ * Chrome's on-device Translator while the real LLM request is still
+ * running. No per-segment glosses here -- the LLM response remains the
+ * source of contextual word grouping/definitions and overwrites this
+ * preview when it arrives.
+ */
+async function runQuickTranslationPreview(
+  text: string,
+  words: PinyinResponseLocal["words"],
+  requestId: number,
+  llmSeqAtStart: number,
+): Promise<void> {
+  const result = await translateChineseToEnglish(text);
+  if (!result.ok) return;
+  if (requestId !== currentRequestId) return;
+  if (llmPhaseSequence !== llmSeqAtStart) return;
+
+  updateOverlayFallback(
+    words.map((w) => ({
+      chars: w.chars,
+      pinyin: w.pinyin,
+      definition: w.definition ?? "",
+    })),
+    result.translation,
+    cachedTtsEnabled,
   );
 }
 
@@ -327,12 +367,14 @@ chrome.runtime.onMessage.addListener(
   (message: ExtensionMessage) => {
     switch (message.type) {
       case "PINYIN_RESPONSE_LLM":
+        llmPhaseSequence += 1;
         updateOverlay(message.words, message.translation, cachedTtsEnabled);
         closeOldestKeepalivePort();
         break;
 
       case "PINYIN_ERROR":
         if (message.phase === "llm") {
+          llmPhaseSequence += 1;
           showOverlayError(message.error);
           closeOldestKeepalivePort();
         }
