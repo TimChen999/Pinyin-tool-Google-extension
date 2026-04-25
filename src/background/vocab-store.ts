@@ -14,6 +14,7 @@ import {
   MAX_VOCAB_EXAMPLES,
   VOCAB_STOP_WORDS,
 } from "../shared/constants";
+import { applyReviewResult } from "../shared/srs";
 
 const STORAGE_KEY = "vocabStore";
 
@@ -107,6 +108,8 @@ export async function recordWords(
         wrongStreak: 0,
         totalReviews: 0,
         totalCorrect: 0,
+        intervalDays: 0,
+        nextDueAt: 0,
       };
       if (example && !exampleAttached) {
         entry.examples = [{ ...example }];
@@ -144,6 +147,8 @@ export async function getAllVocab(): Promise<VocabEntry[]> {
     wrongStreak: entry.wrongStreak ?? 0,
     totalReviews: entry.totalReviews ?? 0,
     totalCorrect: entry.totalCorrect ?? 0,
+    intervalDays: entry.intervalDays ?? 0,
+    nextDueAt: entry.nextDueAt ?? 0,
   }));
 }
 
@@ -159,8 +164,10 @@ export async function clearVocab(): Promise<void> {
  * No-op if the word does not exist.
  */
 /**
- * Updates a single word's flashcard stats after a review.
- * Persists immediately so partial sessions are not lost.
+ * Updates a single word's flashcard stats after a review and runs the
+ * SRS scheduler so the next-due timestamp reflects the new interval.
+ * See shared/srs.ts for the doubling-interval rules and bucket
+ * thresholds. Persists immediately so partial sessions are not lost.
  */
 export async function updateFlashcardResult(
   chars: string,
@@ -171,13 +178,21 @@ export async function updateFlashcardResult(
   const entry = store[chars];
   if (!entry) return;
 
-  entry.totalReviews = (entry.totalReviews ?? 0) + 1;
-  if (correct) {
-    entry.totalCorrect = (entry.totalCorrect ?? 0) + 1;
-    entry.wrongStreak = 0;
-  } else {
-    entry.wrongStreak = (entry.wrongStreak ?? 0) + 1;
-  }
+  const next = applyReviewResult(
+    {
+      intervalDays: entry.intervalDays ?? 0,
+      wrongStreak: entry.wrongStreak ?? 0,
+      totalReviews: entry.totalReviews ?? 0,
+      totalCorrect: entry.totalCorrect ?? 0,
+    },
+    correct,
+    Date.now(),
+  );
+  entry.intervalDays = next.intervalDays;
+  entry.nextDueAt = next.nextDueAt;
+  entry.wrongStreak = next.wrongStreak;
+  entry.totalReviews = next.totalReviews;
+  entry.totalCorrect = next.totalCorrect;
 
   await chrome.storage.local.set({ [STORAGE_KEY]: store });
 }
@@ -255,6 +270,8 @@ export async function importVocab(
         existing.totalReviews = entry.totalReviews ?? 0;
         existing.totalCorrect = entry.totalCorrect ?? 0;
         existing.wrongStreak = entry.wrongStreak ?? 0;
+        existing.intervalDays = entry.intervalDays ?? 0;
+        existing.nextDueAt = entry.nextDueAt ?? 0;
       }
       existing.pinyin = entry.pinyin;
       existing.definition = entry.definition;
@@ -271,6 +288,8 @@ export async function importVocab(
         wrongStreak: entry.wrongStreak ?? 0,
         totalReviews: entry.totalReviews ?? 0,
         totalCorrect: entry.totalCorrect ?? 0,
+        intervalDays: entry.intervalDays ?? 0,
+        nextDueAt: entry.nextDueAt ?? 0,
       };
       if (entry.examples && entry.examples.length > 0) {
         fresh.examples = entry.examples

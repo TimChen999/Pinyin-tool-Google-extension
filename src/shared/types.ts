@@ -90,6 +90,18 @@ export interface VocabEntry {
   wrongStreak: number;
   totalReviews: number;
   totalCorrect: number;
+  /**
+   * Current spaced-repetition interval in days. Zero means the card
+   * is due immediately (either never reviewed or last answer wrong);
+   * a successful review doubles the interval up to SRS_MAX_INTERVAL_DAYS.
+   */
+  intervalDays: number;
+  /**
+   * Epoch ms when this card next becomes due. Defaults to 0 for
+   * entries that have never been reviewed -- they're treated as due
+   * immediately so they surface in the very next session.
+   */
+  nextDueAt: number;
   examples?: VocabExample[];
 }
 

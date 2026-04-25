@@ -232,6 +232,82 @@ body {
   padding: 48px 16px;
 }
 
+/* ─── SRS Bucket Pills & Summary ──────────────────────────────── */
+
+.vocab-bucket-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 2px 12px;
+}
+
+.vocab-bucket-summary:empty {
+  display: none;
+}
+
+.vocab-bucket-summary-chip,
+.vocab-bucket-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+
+button.vocab-bucket-summary-chip {
+  border: 2px solid transparent;
+  cursor: pointer;
+  font-family: inherit;
+  opacity: 0.7;
+  transition: opacity 0.1s, border-color 0.1s, transform 0.1s;
+}
+
+button.vocab-bucket-summary-chip:hover {
+  opacity: 1;
+}
+
+button.vocab-bucket-summary-chip.active {
+  opacity: 1;
+  border-color: currentColor;
+}
+
+.vocab-bucket-pill {
+  margin-left: auto;
+}
+
+.vocab-bucket-all {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.vocab-bucket-confident {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.vocab-bucket-needs-improvement {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.vocab-bucket-not-reviewed {
+  background: #e5e7eb;
+  color: #4b5563;
+}
+
+.vocab-card-bucket {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 8px;
+}
+
+.vocab-card-due-note {
+  font-size: 12px;
+  color: #6b7280;
+}
+
 /* ─── Vocab Detail Card ───────────────────────────────────────── */
 
 .vocab-card-overlay {
@@ -980,6 +1056,30 @@ body[data-theme="dark"] .vocab-empty {
   color: #6b7280;
 }
 
+body[data-theme="dark"] .vocab-bucket-all {
+  background: #312e81;
+  color: #c7d2fe;
+}
+
+body[data-theme="dark"] .vocab-bucket-confident {
+  background: #064e3b;
+  color: #6ee7b7;
+}
+
+body[data-theme="dark"] .vocab-bucket-needs-improvement {
+  background: #5a3a07;
+  color: #fcd34d;
+}
+
+body[data-theme="dark"] .vocab-bucket-not-reviewed {
+  background: #374151;
+  color: #d1d5db;
+}
+
+body[data-theme="dark"] .vocab-card-due-note {
+  color: #9ca3af;
+}
+
 body[data-theme="dark"] .vocab-card {
   background: #1f2937;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
@@ -1271,6 +1371,12 @@ body[data-theme="dark"] .hub-tab-content::-webkit-scrollbar-thumb:hover {
   body[data-theme="auto"] .vocab-row-meta { color: #6b7280; }
   body[data-theme="auto"] .vocab-empty { color: #6b7280; }
 
+  body[data-theme="auto"] .vocab-bucket-all { background: #312e81; color: #c7d2fe; }
+  body[data-theme="auto"] .vocab-bucket-confident { background: #064e3b; color: #6ee7b7; }
+  body[data-theme="auto"] .vocab-bucket-needs-improvement { background: #5a3a07; color: #fcd34d; }
+  body[data-theme="auto"] .vocab-bucket-not-reviewed { background: #374151; color: #d1d5db; }
+  body[data-theme="auto"] .vocab-card-due-note { color: #9ca3af; }
+
   body[data-theme="auto"] .vocab-card { background: #1f2937; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
   body[data-theme="auto"] .vocab-card-close { color: #6b7280; }
   body[data-theme="auto"] .vocab-card-close:hover { color: #d1d5db; background: #374151; }
@@ -1422,6 +1528,12 @@ body[data-theme="sepia"] .vocab-pinyin { color: #8b7355; }
 body[data-theme="sepia"] .vocab-def { color: #5c4b37; }
 body[data-theme="sepia"] .vocab-row-meta { color: #8b7355; }
 body[data-theme="sepia"] .vocab-empty { color: #8b7355; }
+
+body[data-theme="sepia"] .vocab-bucket-all { background: #d8d2bc; color: #4a3f2a; }
+body[data-theme="sepia"] .vocab-bucket-confident { background: #d6e6c8; color: #4a6b2a; }
+body[data-theme="sepia"] .vocab-bucket-needs-improvement { background: #f0deb4; color: #8b5a1a; }
+body[data-theme="sepia"] .vocab-bucket-not-reviewed { background: #e2d6b6; color: #5c4b37; }
+body[data-theme="sepia"] .vocab-card-due-note { color: #8b7355; }
 
 body[data-theme="sepia"] .vocab-card {
   background: #f4ecd8;

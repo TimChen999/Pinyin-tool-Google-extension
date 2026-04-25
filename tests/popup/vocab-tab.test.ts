@@ -31,9 +31,9 @@ const mockedRemoveWord = removeWord as ReturnType<typeof vi.fn>;
 // ─── Sample data ─────────────────────────────────────────────────────
 
 const sampleVocab: VocabEntry[] = [
-  { chars: "银行", pinyin: "yín háng", definition: "bank", count: 5, firstSeen: 1000, lastSeen: 5000, wrongStreak: 0, totalReviews: 0, totalCorrect: 0 },
-  { chars: "工作", pinyin: "gōng zuò", definition: "to work", count: 3, firstSeen: 2000, lastSeen: 4000, wrongStreak: 0, totalReviews: 0, totalCorrect: 0 },
-  { chars: "学生", pinyin: "xué shēng", definition: "student", count: 7, firstSeen: 500, lastSeen: 3000, wrongStreak: 0, totalReviews: 0, totalCorrect: 0 },
+  { chars: "银行", pinyin: "yín háng", definition: "bank", count: 5, firstSeen: 1000, lastSeen: 5000, wrongStreak: 0, totalReviews: 0, totalCorrect: 0, intervalDays: 0, nextDueAt: 0 },
+  { chars: "工作", pinyin: "gōng zuò", definition: "to work", count: 3, firstSeen: 2000, lastSeen: 4000, wrongStreak: 0, totalReviews: 0, totalCorrect: 0, intervalDays: 0, nextDueAt: 0 },
+  { chars: "学生", pinyin: "xué shēng", definition: "student", count: 7, firstSeen: 500, lastSeen: 3000, wrongStreak: 0, totalReviews: 0, totalCorrect: 0, intervalDays: 0, nextDueAt: 0 },
 ];
 
 // ─── DOM scaffold ────────────────────────────────────────────────────

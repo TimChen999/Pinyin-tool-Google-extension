@@ -223,6 +223,8 @@ describe("vocab-store", () => {
         expect(entry.wrongStreak).toBe(0);
         expect(entry.totalReviews).toBe(0);
         expect(entry.totalCorrect).toBe(0);
+        expect(entry.intervalDays).toBe(0);
+        expect(entry.nextDueAt).toBe(0);
       }
     });
 
@@ -306,6 +308,41 @@ describe("vocab-store", () => {
 
       expect(bank.totalReviews).toBe(2);
       expect(work.totalReviews).toBe(0);
+    });
+
+    it("schedules a future review on correct (interval > 0, nextDueAt in future)", async () => {
+      await recordWords(sampleWords);
+      const before = Date.now();
+      await updateFlashcardResult("银行", true);
+
+      const vocab = await getAllVocab();
+      const bank = vocab.find((v) => v.chars === "银行")!;
+      expect(bank.intervalDays).toBeGreaterThan(0);
+      expect(bank.nextDueAt).toBeGreaterThan(before);
+    });
+
+    it("doubles the interval on a second correct answer", async () => {
+      await recordWords(sampleWords);
+      await updateFlashcardResult("银行", true);
+      const first = (await getAllVocab()).find((v) => v.chars === "银行")!;
+      const firstInterval = first.intervalDays;
+
+      await updateFlashcardResult("银行", true);
+      const second = (await getAllVocab()).find((v) => v.chars === "银行")!;
+      expect(second.intervalDays).toBe(firstInterval * 2);
+    });
+
+    it("resets interval to 0 on a wrong answer (card becomes due immediately)", async () => {
+      await recordWords(sampleWords);
+      await updateFlashcardResult("银行", true);
+      await updateFlashcardResult("银行", true);
+      const before = (await getAllVocab()).find((v) => v.chars === "银行")!;
+      expect(before.intervalDays).toBeGreaterThan(0);
+
+      await updateFlashcardResult("银行", false);
+      const after = (await getAllVocab()).find((v) => v.chars === "银行")!;
+      expect(after.intervalDays).toBe(0);
+      expect(after.nextDueAt).toBeLessThanOrEqual(Date.now());
     });
   });
 
@@ -513,6 +550,8 @@ describe("vocab-store", () => {
         wrongStreak: 0,
         totalReviews: 0,
         totalCorrect: 0,
+        intervalDays: 0,
+        nextDueAt: 0,
         examples,
       };
     }

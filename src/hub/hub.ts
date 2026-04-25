@@ -16,10 +16,15 @@ import {
 } from "../background/vocab-store";
 import { convertToPinyin } from "../background/pinyin-service";
 import {
-  FLASHCARD_WRONG_POOL_RATIO,
   DEFAULT_SETTINGS,
 } from "../shared/constants";
 import { translateExampleSentence } from "../shared/translate-example";
+import {
+  bucketLabel,
+  getVocabBucket,
+  isDue,
+  type VocabBucket,
+} from "../shared/srs";
 import type { ExtensionSettings, PinyinStyle, VocabEntry, VocabExample, WordData } from "../shared/types";
 import { resolveEffectiveTheme } from "../shared/theme";
 import type { ReaderSettings } from "../reader/reader-types";
@@ -41,6 +46,7 @@ function getElements() {
     tabVocab: document.getElementById("tab-vocab") as HTMLDivElement,
     tabFlashcards: document.getElementById("tab-flashcards") as HTMLDivElement,
     vocabSort: document.getElementById("vocab-sort") as HTMLSelectElement,
+    vocabBucketSummary: document.getElementById("vocab-bucket-summary") as HTMLDivElement | null,
     vocabList: document.getElementById("vocab-list") as HTMLDivElement,
     clearVocabBtn: document.getElementById("clear-vocab") as HTMLButtonElement,
     fcSetup: document.getElementById("fc-setup") as HTMLDivElement,
@@ -74,33 +80,42 @@ function getElements() {
 // ─── Session Algorithm ───────────────────────────────────────────────
 
 /**
- * Builds a flashcard session of size N from the vocab list.
- * Prioritizes words with wrongStreak > 0 (up to 40% of the session),
- * fills the rest with shuffled normal-pool words, then shuffles the
- * combined list.
+ * Builds a flashcard session of size N from the vocab list using the
+ * SRS scheduler in shared/srs.ts. Cards that are due now (interval
+ * elapsed, never reviewed, or last answer wrong) come first, oldest
+ * due first with wrong-streak as a tiebreaker so words the user is
+ * actively struggling with surface ahead of plain not-yet-reviewed
+ * cards. When the due pool is smaller than N, the remaining slots are
+ * filled with the soonest-upcoming not-due cards so the user can
+ * always start a session of the requested size. The final list is
+ * shuffled so the user doesn't see a perfectly sorted order, but the
+ * mix of due vs. not-due is preserved.
  */
-export function buildSession(vocab: VocabEntry[], size: number): VocabEntry[] {
+export function buildSession(
+  vocab: VocabEntry[],
+  size: number,
+  now: number = Date.now(),
+): VocabEntry[] {
   if (vocab.length === 0) return [];
   const n = Math.min(size, vocab.length);
 
-  const wrongPool = vocab
-    .filter((e) => e.wrongStreak > 0)
-    .sort((a, b) => b.wrongStreak - a.wrongStreak);
+  const due: VocabEntry[] = [];
+  const notDue: VocabEntry[] = [];
+  for (const entry of vocab) {
+    if (isDue(entry, now)) due.push(entry);
+    else notDue.push(entry);
+  }
 
-  const normalPool = shuffleArray(
-    vocab.filter((e) => e.wrongStreak === 0),
-  );
+  due.sort((a, b) => {
+    if (a.wrongStreak !== b.wrongStreak) return b.wrongStreak - a.wrongStreak;
+    return a.nextDueAt - b.nextDueAt;
+  });
+  notDue.sort((a, b) => a.nextDueAt - b.nextDueAt);
 
-  const wrongSlots = Math.min(
-    Math.ceil(n * FLASHCARD_WRONG_POOL_RATIO),
-    wrongPool.length,
-  );
-  const normalSlots = Math.min(n - wrongSlots, normalPool.length);
-  const extraWrong = Math.min(n - wrongSlots - normalSlots, wrongPool.length - wrongSlots);
-  const picked: VocabEntry[] = [
-    ...wrongPool.slice(0, wrongSlots + extraWrong),
-    ...normalPool.slice(0, normalSlots),
-  ];
+  const picked = due.slice(0, n);
+  if (picked.length < n) {
+    picked.push(...notDue.slice(0, n - picked.length));
+  }
 
   return shuffleArray(picked);
 }
@@ -373,6 +388,18 @@ async function showVocabCard(
   def.className = "vocab-card-def";
   def.textContent = entry.definition;
 
+  const bucketRow = document.createElement("div");
+  bucketRow.className = "vocab-card-bucket";
+  bucketRow.appendChild(renderBucketPill(getVocabBucket(entry)));
+  if (entry.intervalDays > 0 && entry.nextDueAt > 0) {
+    const dueIn = Math.max(0, Math.round((entry.nextDueAt - Date.now()) / 86_400_000));
+    const dueNote = document.createElement("span");
+    dueNote.className = "vocab-card-due-note";
+    dueNote.textContent =
+      dueIn === 0 ? "Due now" : `Next review in ${dueIn} day${dueIn === 1 ? "" : "s"}`;
+    bucketRow.appendChild(dueNote);
+  }
+
   const meta = document.createElement("div");
   meta.className = "vocab-card-meta";
   const lastSeen = new Date(entry.lastSeen).toLocaleDateString();
@@ -397,7 +424,7 @@ async function showVocabCard(
   });
 
   actions.appendChild(deleteBtn);
-  card.append(closeBtn, chars, pinyin, def, meta, actions);
+  card.append(closeBtn, chars, pinyin, def, bucketRow, meta, actions);
 
   overlay.appendChild(card);
 
@@ -429,23 +456,117 @@ async function showVocabCard(
 
 // ─── Vocab List Rendering ────────────────────────────────────────────
 
+/**
+ * Active bucket filter for the vocab list. "all" shows every entry
+ * regardless of bucket; the three concrete bucket values restrict the
+ * list to that bucket only. Lifted to module scope so clicks on the
+ * summary chips persist across re-renders without round-tripping
+ * through storage.
+ */
+let selectedBucketFilter: VocabBucket | "all" = "all";
+
+/**
+ * Builds the small inline pill that shows an entry's SRS bucket. The
+ * three states each get their own modifier class so theming can recolor
+ * them per palette without touching this code.
+ */
+function renderBucketPill(bucket: VocabBucket): HTMLElement {
+  const pill = document.createElement("span");
+  pill.className = `vocab-bucket-pill vocab-bucket-${bucket}`;
+  pill.textContent = bucketLabel(bucket);
+  return pill;
+}
+
+/**
+ * Renders the bucket-counts strip above the vocab list. Each chip is
+ * a clickable filter toggle: clicking restricts the list to that
+ * bucket (and re-clicking the active chip clears the filter). The
+ * "All" chip explicitly clears the filter and lights up when no
+ * bucket-specific filter is active. When the vocab list is empty the
+ * strip stays empty so the existing empty-state message carries the
+ * page on its own.
+ */
+function renderBucketSummary(
+  container: HTMLElement,
+  entries: VocabEntry[],
+  els: ReturnType<typeof getElements>,
+): void {
+  container.innerHTML = "";
+  if (entries.length === 0) return;
+
+  const counts: Record<VocabBucket, number> = {
+    confident: 0,
+    "needs-improvement": 0,
+    "not-reviewed": 0,
+  };
+  for (const e of entries) counts[getVocabBucket(e)]++;
+
+  const allChip = document.createElement("button");
+  allChip.type = "button";
+  allChip.className = "vocab-bucket-summary-chip vocab-bucket-all";
+  if (selectedBucketFilter === "all") allChip.classList.add("active");
+  allChip.textContent = `All: ${entries.length}`;
+  allChip.addEventListener("click", () => {
+    if (selectedBucketFilter === "all") return;
+    selectedBucketFilter = "all";
+    void renderVocabList(els);
+  });
+  container.appendChild(allChip);
+
+  const order: VocabBucket[] = ["confident", "needs-improvement", "not-reviewed"];
+  for (const bucket of order) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = `vocab-bucket-summary-chip vocab-bucket-${bucket}`;
+    if (selectedBucketFilter === bucket) chip.classList.add("active");
+    chip.textContent = `${bucketLabel(bucket)}: ${counts[bucket]}`;
+    chip.addEventListener("click", () => {
+      // Re-clicking the active chip toggles the filter off so the
+      // user can return to the full list with one click.
+      selectedBucketFilter = selectedBucketFilter === bucket ? "all" : bucket;
+      void renderVocabList(els);
+    });
+    container.appendChild(chip);
+  }
+}
+
 async function renderVocabList(els: ReturnType<typeof getElements>): Promise<void> {
-  const entries = await getAllVocab();
+  const allEntries = await getAllVocab();
   const sortBy = els.vocabSort.value;
 
   if (sortBy === "recent") {
-    entries.sort((a, b) => b.lastSeen - a.lastSeen);
+    allEntries.sort((a, b) => b.lastSeen - a.lastSeen);
   } else if (sortBy === "alpha") {
-    entries.sort((a, b) => a.chars.localeCompare(b.chars, "zh"));
+    allEntries.sort((a, b) => a.chars.localeCompare(b.chars, "zh"));
   } else {
-    entries.sort((a, b) => b.count - a.count);
+    allEntries.sort((a, b) => b.count - a.count);
   }
+
+  if (els.vocabBucketSummary) {
+    renderBucketSummary(els.vocabBucketSummary, allEntries, els);
+  }
+
+  // Counts strip uses the unfiltered list so each chip always reflects
+  // the full distribution; the row list below is what the filter applies
+  // to.
+  const entries =
+    selectedBucketFilter === "all"
+      ? allEntries
+      : allEntries.filter((e) => getVocabBucket(e) === selectedBucketFilter);
 
   els.vocabList.innerHTML = "";
 
-  if (entries.length === 0) {
+  if (allEntries.length === 0) {
     els.vocabList.innerHTML =
       '<div class="vocab-empty">No words saved yet.\nSelect Chinese text on any page to start building your list.</div>';
+    return;
+  }
+
+  if (entries.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "vocab-empty";
+    empty.textContent = `No words in "${bucketLabel(selectedBucketFilter as VocabBucket)}".`;
+    els.vocabList.appendChild(empty);
     return;
   }
 
@@ -459,6 +580,7 @@ async function renderVocabList(els: ReturnType<typeof getElements>): Promise<voi
       `<span class="vocab-chars">${entry.chars}</span>` +
       `<span class="vocab-pinyin">${entry.pinyin}</span>` +
       `<span class="vocab-def">${entry.definition}</span>`;
+    primary.appendChild(renderBucketPill(getVocabBucket(entry)));
 
     const metaDiv = document.createElement("div");
     metaDiv.className = "vocab-row-meta";
@@ -665,7 +787,10 @@ async function startSession(els: ReturnType<typeof getElements>): Promise<void> 
 
 async function showSetup(els: ReturnType<typeof getElements>): Promise<void> {
   const vocab = await getAllVocab();
-  els.fcAvailable.textContent = `${vocab.length} word${vocab.length !== 1 ? "s" : ""} available`;
+  const now = Date.now();
+  const dueCount = vocab.filter((e) => isDue(e, now)).length;
+  els.fcAvailable.textContent =
+    `${dueCount} due · ${vocab.length} total word${vocab.length !== 1 ? "s" : ""}`;
 
   if (vocab.length === 0) {
     els.fcStart.disabled = true;
@@ -839,6 +964,8 @@ async function handleImport(
       wrongStreak: typeof raw.wrongStreak === "number" ? raw.wrongStreak : 0,
       totalReviews: typeof raw.totalReviews === "number" ? raw.totalReviews : 0,
       totalCorrect: typeof raw.totalCorrect === "number" ? raw.totalCorrect : 0,
+      intervalDays: typeof raw.intervalDays === "number" ? raw.intervalDays : 0,
+      nextDueAt: typeof raw.nextDueAt === "number" ? raw.nextDueAt : 0,
     };
   });
 

@@ -41,9 +41,9 @@ const mockedImportVocab = importVocab as ReturnType<typeof vi.fn>;
 // ─── Sample data ─────────────────────────────────────────────────────
 
 const sampleVocab: VocabEntry[] = [
-  { chars: "银行", pinyin: "yín háng", definition: "bank", count: 5, firstSeen: 1000, lastSeen: 5000, wrongStreak: 0, totalReviews: 10, totalCorrect: 8 },
-  { chars: "工作", pinyin: "gōng zuò", definition: "to work", count: 3, firstSeen: 2000, lastSeen: 4000, wrongStreak: 0, totalReviews: 0, totalCorrect: 0 },
-  { chars: "学生", pinyin: "xué shēng", definition: "student", count: 7, firstSeen: 500, lastSeen: 3000, wrongStreak: 2, totalReviews: 5, totalCorrect: 2 },
+  { chars: "银行", pinyin: "yín háng", definition: "bank", count: 5, firstSeen: 1000, lastSeen: 5000, wrongStreak: 0, totalReviews: 10, totalCorrect: 8, intervalDays: 0, nextDueAt: 0 },
+  { chars: "工作", pinyin: "gōng zuò", definition: "to work", count: 3, firstSeen: 2000, lastSeen: 4000, wrongStreak: 0, totalReviews: 0, totalCorrect: 0, intervalDays: 0, nextDueAt: 0 },
+  { chars: "学生", pinyin: "xué shēng", definition: "student", count: 7, firstSeen: 500, lastSeen: 3000, wrongStreak: 2, totalReviews: 5, totalCorrect: 2, intervalDays: 0, nextDueAt: 0 },
 ];
 
 // ─── DOM scaffold ────────────────────────────────────────────────────
@@ -730,6 +730,8 @@ describe("hub page", () => {
       wrongStreak: 0,
       totalReviews: 0,
       totalCorrect: 0,
+      intervalDays: 0,
+      nextDueAt: 0,
       examples: [
         { sentence: "我去银行存钱。", translation: "I go to the bank.", capturedAt: 1 },
       ],
@@ -862,13 +864,16 @@ describe("hub page", () => {
   // ─── Flashcard setup ───────────────────────────────────────────
 
   describe("flashcard setup", () => {
-    it("shows word count in setup screen", async () => {
+    it("shows due and total word count in setup screen", async () => {
       mockedGetAllVocab.mockResolvedValue([...sampleVocab]);
       await loadHub();
       await switchToFlashcards();
 
       const available = document.getElementById("fc-available")!;
-      expect(available.textContent).toContain("3 words available");
+      // Sample vocab entries default to nextDueAt=0 so all 3 are
+      // immediately due; totals come from vocab.length.
+      expect(available.textContent).toContain("3 due");
+      expect(available.textContent).toContain("3 total words");
     });
 
     it("disables start when no words", async () => {
@@ -1230,7 +1235,8 @@ describe("hub page", () => {
       await mod.refreshFlashcardsView();
 
       const available = document.getElementById("fc-available")!;
-      expect(available.textContent).toContain("3 words available");
+      expect(available.textContent).toContain("3 due");
+      expect(available.textContent).toContain("3 total words");
     });
 
     it("shows the setup screen and hides summary when called from summary state", async () => {

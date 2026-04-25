@@ -90,9 +90,6 @@ export const MAX_CACHE_ENTRIES = 5000;
 /** Maximum number of words to store in the vocab list. Least-frequent entries are dropped first. */
 export const MAX_VOCAB_ENTRIES = 10_000;
 
-/** Fraction of each flashcard session filled from the wrong-streak priority pool. */
-export const FLASHCARD_WRONG_POOL_RATIO = 0.4;
-
 /**
  * Maximum number of captured example sentences stored per vocab entry.
  * Two slots is the sweet spot: rich enough to give the user real-world
