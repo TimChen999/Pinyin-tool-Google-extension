@@ -40,3 +40,6 @@ Thumbs.db
 
 # Local-only files
 *.local
+
+# Claude Code per-user settings
+.claude/settings.local.json
