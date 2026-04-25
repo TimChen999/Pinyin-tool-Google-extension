@@ -1462,6 +1462,9 @@ export async function initReader(): Promise<void> {
       return;
     }
     if (els.bookmarkMenu.classList.contains("hidden")) {
+      if (isTocSidebarOpen(els)) {
+        showOnlySidebar(els, "none");
+      }
       openBookmarkMenu(els);
     } else {
       closeBookmarkMenu(els);
