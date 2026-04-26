@@ -2,9 +2,15 @@
  * Two-tier popup for the click-flow.
  *
  * Layout:
- *  - Word tier:     pinyin + (optional) gloss + +Vocab + close button
- *  - Sentence tier: English translation only (the original sentence is
- *                   visible on the page, highlighted by page-highlight.ts)
+ *  - Word tier (top section): chars + pinyin + (optional) gloss +
+ *      [+Vocab][readings] action row.
+ *  - Bottom tier:  toolbar row containing the speaker (TTS) button, the
+ *      segmented toggle (Translation / Pinyin), and the LLM status badge
+ *      (spinner / error icon) — all on the same horizontal level, just
+ *      below the divider. Below the toolbar is a single content slot
+ *      that swaps between the English translation view and the per-word
+ *      pinyin ruby strip. Only one view is visible at a time so the
+ *      popup stays compact.
  *
  * Lives in the same Shadow DOM as the legacy overlay (`#hg-extension-root`)
  * so style isolation is shared, but uses its own root container element
@@ -12,10 +18,11 @@
  * independently by the OCR / context-menu paths without interaction.
  *
  * State transitions:
- *  - showBootstrap()  -- word tier from CC-CEDICT, sentence tier "Translating..."
+ *  - showBootstrap()  -- word tier from CC-CEDICT, translation view shows
+ *                        "Translating…" while pinyin view holds bootstrap segmentation
  *  - upgradeWord()    -- word tier with LLM contextual data
- *  - setSentenceText()-- sentence tier with the latest translation
- *  - setSentenceError -- inline error in the sentence tier
+ *  - setSentenceText()-- translation view filled with latest translation
+ *  - setSentenceError -- inline error inside the translation view
  *  - dismiss()        -- removes the popup and clears highlights via callback
  */
 
@@ -27,13 +34,15 @@ import {
 } from "../shared/cedict-lookup";
 import type { CedictHit } from "../shared/cedict-types";
 
+type ViewMode = "translation" | "pinyin";
+
 /**
- * Session-level pin for the pinyin-strip toggle. Once a user expands
- * the strip in this tab, subsequent clicks default to expanded so they
- * keep their study-mode preference without re-toggling each click.
- * Reset only on tab unload.
+ * Session-level pin for the bottom-tier view. Once a user picks pinyin
+ * (or stays on translation) in this tab, subsequent clicks default to
+ * the same view so they keep their study-mode preference without
+ * re-toggling each click. Reset only on tab unload.
  */
-let pinyinStripExpandedSession = false;
+let activeViewSession: ViewMode = "translation";
 
 export interface StripWord {
   text: string;
@@ -153,7 +162,10 @@ export function showBootstrap(args: ShowBootstrapArgs): void {
   const popup = document.createElement("div");
   popup.className = `pt-popup hg-${resolvedTheme}`;
 
-  // Word tier
+  // ── Word tier (top section) ─────────────────────────────────────
+  // Hosts: header (chars + pinyin), gloss, actions row.
+  currentTtsEnabled = args.ttsEnabled;
+
   const wordTier = document.createElement("div");
   wordTier.className = "pt-word-tier";
   wordTier.appendChild(makeWordHeader(args.word));
@@ -164,48 +176,25 @@ export function showBootstrap(args: ShowBootstrapArgs): void {
     wordTier.appendChild(gloss);
   }
   wordTier.appendChild(makeActionsRow(args.word, args.sentence));
+
   popup.appendChild(wordTier);
 
-  // Pinyin strip — collapsed by default (1 thin row), expandable.
-  popup.appendChild(makePinyinStrip(args.sentenceWords, args.word.chars));
+  // ── Bottom tier (translation ⇄ pinyin) ─────────────────────────
+  // Speaker and LLM status badge live on the toolbar row alongside the
+  // Translation/Pinyin toggle, so they share one horizontal lane and
+  // don't add vertical height.
+  popup.appendChild(
+    makeBottomTier({
+      sentence: args.sentence,
+      sentenceWords: args.sentenceWords,
+      activeChars: args.word.chars,
+      expectTranslation: args.expectLlm || args.expectBootstrapTranslation,
+      ttsEnabled: currentTtsEnabled,
+      expectLlm: args.expectLlm,
+    }),
+  );
 
-  // Sentence tier
-  const sentTier = document.createElement("div");
-  sentTier.className = "pt-sent-tier";
-  // Speaker button comes FIRST in the sentence tier so it sits to the
-  // left of the translation text. Don't gate on hasChineseVoice() —
-  // voices in Chrome load asynchronously and the first popup often
-  // opens before the voiceschanged event fires; if no Chinese voice
-  // is ever found the synth call is a graceful no-op.
-  currentTtsEnabled = args.ttsEnabled;
-  if (currentTtsEnabled) {
-    sentTier.appendChild(makeSpeakerButton(args.sentence));
-  }
-  if (args.expectLlm || args.expectBootstrapTranslation) {
-    sentTier.classList.add("pt-loading");
-    sentTier.appendChild(makeLoadingSpinner());
-    sentTier.appendChild(document.createTextNode("Translating sentence…"));
-  } else {
-    sentTier.classList.add("pt-empty");
-    sentTier.appendChild(
-      document.createTextNode(
-        "Sentence translation requires AI Translations or Chrome's on-device translator.",
-      ),
-    );
-  }
-  popup.appendChild(sentTier);
-
-  // Persistent LLM status badge in the popup's top-right corner.
-  // Visible spinner while LLM is in flight; clears on success;
-  // turns into a hoverable error icon on failure. This mirrors the
-  // legacy overlay's `.hg-llm-status` so the user always has an
-  // at-a-glance signal of LLM progress regardless of which tier
-  // they're reading.
-  if (args.expectLlm) {
-    popup.appendChild(makeLlmStatusBadge());
-  }
-
-  // Close button
+  // Close button — top-right of the entire popup.
   const closeBtn = document.createElement("button");
   closeBtn.className = "pt-close-btn";
   closeBtn.textContent = "×";
@@ -265,37 +254,28 @@ export function upgradeWord(word: {
 /**
  * Sets the sentence translation text. `source` is "bootstrap" (Chrome
  * translator) or "llm" — we render them slightly differently so the
- * user can tell which tier they're seeing.
+ * user can tell which source they're seeing.
  */
 export function setSentenceText(
   text: string,
   source: "bootstrap" | "llm",
 ): void {
   if (!popupEl) return;
-  const tier = popupEl.querySelector(".pt-sent-tier");
-  if (!tier) return;
-  tier.classList.remove("pt-loading", "pt-empty", "pt-error");
-  tier.classList.toggle("pt-bootstrap", source === "bootstrap");
-  tier.classList.toggle("pt-llm", source === "llm");
-  // Replace contents (including any spinner) with the text. Re-assert
-  // the speaker button so it survives the rebuild even if it was never
-  // rendered initially (e.g. content-script settings race where
-  // showBootstrap fired before chrome.storage.sync.get resolved).
-  let speakBtn = tier.querySelector(".pt-speak-btn") as HTMLElement | null;
-  while (tier.firstChild) tier.removeChild(tier.firstChild);
-  tier.appendChild(document.createTextNode(text));
-  if (currentTtsEnabled) {
-    if (!speakBtn) speakBtn = makeSpeakerButton(currentSentenceText);
-    tier.insertBefore(speakBtn, tier.firstChild);
-  }
-  // The corner LLM-status badge clears the moment the LLM lands —
-  // independent of which tier the source is. The bootstrap path
-  // doesn't clear it (LLM may still be in flight).
+  const view = popupEl.querySelector(".pt-view-translation");
+  if (!view) return;
+  view.classList.remove("pt-loading", "pt-empty", "pt-error");
+  view.classList.toggle("pt-bootstrap", source === "bootstrap");
+  view.classList.toggle("pt-llm", source === "llm");
+  while (view.firstChild) view.removeChild(view.firstChild);
+  view.appendChild(document.createTextNode(text));
+  // The LLM-status badge clears the moment the LLM lands — independent
+  // of which view is currently active. The bootstrap path doesn't clear
+  // it (LLM may still be in flight).
   if (source === "llm") clearLlmStatusBadge();
 }
 
 /**
- * Replaces the pinyin-strip's word data with the LLM's contextual
+ * Replaces the pinyin view's word data with the LLM's contextual
  * `words` array. Drops punctuation entries from the rendering. Called
  * from click-flow when SENTENCE_TRANSLATE_RESPONSE_LLM lands.
  */
@@ -304,27 +284,25 @@ export function upgradeStripWithLlm(
   activeChars: string,
 ): void {
   if (!popupEl) return;
-  const strip = popupEl.querySelector(".pt-pinyin-strip");
-  if (!strip) return;
-  const inner = strip.querySelector(".pt-strip-inner");
-  if (!inner) return;
+  const view = popupEl.querySelector(".pt-view-pinyin");
+  if (!view) return;
   const stripWords: StripWord[] = words
     .filter((w) => /[一-鿿㐀-䶿]/.test(w.text))
     .map((w) => ({ text: w.text, pinyin: w.pinyin }));
-  while (inner.firstChild) inner.removeChild(inner.firstChild);
-  for (const w of stripWords) inner.appendChild(makeStripRuby(w, activeChars));
+  while (view.firstChild) view.removeChild(view.firstChild);
+  for (const w of stripWords) view.appendChild(makeStripRuby(w, activeChars));
 }
 
 /**
- * Updates the "active" highlight inside the pinyin strip to point at
+ * Updates the "active" highlight inside the pinyin view to point at
  * `chars`. Called on retarget so the strip reflects which word is in
  * the word tier.
  */
 export function refreshPinyinStripActiveWord(chars: string): void {
   if (!popupEl) return;
-  const strip = popupEl.querySelector(".pt-pinyin-strip");
-  if (!strip) return;
-  const rubies = strip.querySelectorAll<HTMLElement>(".pt-strip-ruby");
+  const view = popupEl.querySelector(".pt-view-pinyin");
+  if (!view) return;
+  const rubies = view.querySelectorAll<HTMLElement>(".pt-strip-ruby");
   rubies.forEach((r) => {
     r.classList.toggle("pt-strip-active", r.dataset.chars === chars);
   });
@@ -364,32 +342,26 @@ export function retargetWord(
 export function setSentenceError(message: string): void {
   if (!popupEl) return;
   // Promote the corner badge to its error state regardless of what the
-  // sentence tier looks like — the user always has a clear, hoverable
-  // error indicator.
+  // translation view looks like — the user always has a clear,
+  // hoverable error indicator in the word tier corner.
   setLlmStatusBadgeError(message);
 
-  const tier = popupEl.querySelector(".pt-sent-tier");
-  if (!tier) return;
+  const view = popupEl.querySelector(".pt-view-translation");
+  if (!view) return;
   // Don't clobber an existing successful translation with an error. The
-  // Bootstrap path may have filled the tier and the LLM may then fail —
+  // Bootstrap path may have filled the view and the LLM may then fail —
   // we'd rather keep the bootstrap text. The corner badge already
   // surfaces the error state.
   if (
-    tier.classList.contains("pt-bootstrap") ||
-    tier.classList.contains("pt-llm")
+    view.classList.contains("pt-bootstrap") ||
+    view.classList.contains("pt-llm")
   ) {
     return;
   }
-  tier.classList.remove("pt-loading", "pt-empty");
-  tier.classList.add("pt-error");
-  // Re-assert the speaker button (same logic as setSentenceText).
-  let speakBtn = tier.querySelector(".pt-speak-btn") as HTMLElement | null;
-  while (tier.firstChild) tier.removeChild(tier.firstChild);
-  tier.appendChild(document.createTextNode(message));
-  if (currentTtsEnabled) {
-    if (!speakBtn) speakBtn = makeSpeakerButton(currentSentenceText);
-    tier.insertBefore(speakBtn, tier.firstChild);
-  }
+  view.classList.remove("pt-loading", "pt-empty");
+  view.classList.add("pt-error");
+  while (view.firstChild) view.removeChild(view.firstChild);
+  view.appendChild(document.createTextNode(message));
 }
 
 /**
@@ -632,50 +604,116 @@ function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(v, max));
 }
 
-// ─── Pinyin strip ──────────────────────────────────────────────────
+// ─── Bottom tier (translation ⇄ pinyin) ────────────────────────────
+
+interface BottomTierArgs {
+  sentence: string;
+  /** Bootstrap segmentation of the full sentence (for the pinyin view). */
+  sentenceWords: StripWord[];
+  /** The chars currently shown in the word tier — highlighted in pinyin view. */
+  activeChars: string;
+  /** True while translation is in flight (translation view shows spinner). */
+  expectTranslation: boolean;
+  /** Whether to render the speaker (TTS) button on the toolbar row. */
+  ttsEnabled: boolean;
+  /** Whether the LLM is in flight — controls the spinner badge presence. */
+  expectLlm: boolean;
+}
 
 /**
- * Builds the collapsible pinyin strip element. Collapsed by default
- * (single thin row with toggle), expanded reveals a ruby annotation
- * for each Chinese word in the sentence. Sticky session preference:
- * once the user expands it, subsequent popup opens default to expanded.
+ * Builds the bottom tier: a toolbar row (speaker + Translation/Pinyin
+ * toggle + LLM status badge) on top of a single content slot that swaps
+ * between the translation view and the per-word pinyin ruby strip. The
+ * active view is session-pinned — picking pinyin once means the next
+ * popup opens to pinyin too.
  */
-function makePinyinStrip(
-  sentenceWords: StripWord[],
-  activeChars: string,
-): HTMLElement {
-  const strip = document.createElement("div");
-  strip.className = "pt-pinyin-strip";
-  if (pinyinStripExpandedSession) strip.classList.add("pt-strip-expanded");
+function makeBottomTier(args: BottomTierArgs): HTMLElement {
+  const tier = document.createElement("div");
+  tier.className = "pt-bottom-tier";
+  tier.dataset.view = activeViewSession;
 
-  const toggle = document.createElement("button");
-  toggle.className = "pt-strip-toggle";
-  toggle.type = "button";
-  toggle.setAttribute("aria-expanded", String(pinyinStripExpandedSession));
-  toggle.addEventListener("click", () => {
-    const expanded = strip.classList.toggle("pt-strip-expanded");
-    pinyinStripExpandedSession = expanded;
-    toggle.setAttribute("aria-expanded", String(expanded));
-    // Re-position once expand/collapse changes the popup height.
-    if (popupEl) {
-      // We don't have the rects on hand; re-running the rect-based
-      // positioning here would need the click-flow to re-supply them.
-      // Skip — the strip itself sits inside the popup and only
-      // changes height; horizontal alignment is unaffected and the
-      // popup may scroll internally if it gets too tall.
-    }
-  });
-  strip.appendChild(toggle);
-
-  const inner = document.createElement("div");
-  inner.className = "pt-strip-inner";
-  for (const w of sentenceWords) {
-    if (!w.text || !/[一-鿿㐀-䶿]/.test(w.text)) continue;
-    inner.appendChild(makeStripRuby(w, activeChars));
+  // Toolbar row: speaker (left) + segmented toggle + LLM badge (right).
+  // All sit on a single horizontal lane so none of them adds height.
+  const toolbar = document.createElement("div");
+  toolbar.className = "pt-bottom-toolbar";
+  // Don't gate the speaker on hasChineseVoice() — voices in Chrome load
+  // asynchronously and the first popup often opens before the
+  // voiceschanged event fires; if no Chinese voice is ever found the
+  // synth call is a graceful no-op.
+  if (args.ttsEnabled) {
+    toolbar.appendChild(makeSpeakerButton(args.sentence));
   }
-  strip.appendChild(inner);
+  const seg = document.createElement("div");
+  seg.className = "pt-view-segmented";
+  seg.setAttribute("role", "tablist");
+  seg.appendChild(makeSegmentedBtn("translation", "Translation", tier));
+  seg.appendChild(makeSegmentedBtn("pinyin", "Pinyin", tier));
+  toolbar.appendChild(seg);
+  if (args.expectLlm) {
+    toolbar.appendChild(makeLlmStatusBadge());
+  }
+  tier.appendChild(toolbar);
 
-  return strip;
+  // Translation view.
+  const tv = document.createElement("div");
+  tv.className = "pt-view pt-view-translation";
+  if (args.expectTranslation) {
+    tv.classList.add("pt-loading");
+    tv.appendChild(makeLoadingSpinner());
+    tv.appendChild(document.createTextNode("Translating sentence…"));
+  } else {
+    tv.classList.add("pt-empty");
+    tv.appendChild(
+      document.createTextNode(
+        "Sentence translation requires AI Translations or Chrome's on-device translator.",
+      ),
+    );
+  }
+  tier.appendChild(tv);
+
+  // Pinyin view.
+  const pv = document.createElement("div");
+  pv.className = "pt-view pt-view-pinyin";
+  for (const w of args.sentenceWords) {
+    if (!w.text || !/[一-鿿㐀-䶿]/.test(w.text)) continue;
+    pv.appendChild(makeStripRuby(w, args.activeChars));
+  }
+  tier.appendChild(pv);
+
+  return tier;
+}
+
+function makeSegmentedBtn(
+  view: ViewMode,
+  label: string,
+  tier: HTMLElement,
+): HTMLButtonElement {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "pt-view-seg-btn";
+  btn.dataset.view = view;
+  btn.textContent = label;
+  btn.setAttribute("role", "tab");
+  if (activeViewSession === view) {
+    btn.classList.add("pt-seg-active");
+    btn.setAttribute("aria-selected", "true");
+  } else {
+    btn.setAttribute("aria-selected", "false");
+  }
+  btn.addEventListener("click", () => {
+    if (tier.dataset.view === view) return;
+    tier.dataset.view = view;
+    activeViewSession = view;
+    const siblings = tier.querySelectorAll<HTMLButtonElement>(
+      ".pt-view-seg-btn",
+    );
+    siblings.forEach((s) => {
+      const isActive = s.dataset.view === view;
+      s.classList.toggle("pt-seg-active", isActive);
+      s.setAttribute("aria-selected", String(isActive));
+    });
+  });
+  return btn;
 }
 
 function makeStripRuby(w: StripWord, activeChars: string): HTMLElement {
@@ -702,9 +740,9 @@ function makeLoadingSpinner(): HTMLElement {
 // ─── LLM status badge ──────────────────────────────────────────────
 
 /**
- * Persistent badge in the popup's top-right corner indicating LLM
- * progress. Starts as a spinner; clears (removed) on Hot transition;
- * turns into a hoverable "!" on failure.
+ * Persistent badge that lives on the bottom-tier toolbar row (right of
+ * the segmented toggle). Starts as a spinner; cleared (removed) on Hot
+ * transition; turns into a hoverable "!" on failure.
  */
 function makeLlmStatusBadge(): HTMLElement {
   const badge = document.createElement("div");
@@ -728,7 +766,10 @@ function setLlmStatusBadgeError(message: string): void {
   if (!badge) {
     badge = document.createElement("div");
     badge.className = "pt-llm-status";
-    popupEl.appendChild(badge);
+    // Anchor on the bottom-tier toolbar so positioning matches the
+    // loading-state badge (right end of the Translation/Pinyin row).
+    const toolbar = popupEl.querySelector(".pt-bottom-toolbar");
+    (toolbar ?? popupEl).appendChild(badge);
   }
   badge.classList.remove("pt-llm-loading");
   badge.classList.add("pt-llm-error");

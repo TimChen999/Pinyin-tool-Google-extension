@@ -512,7 +512,8 @@
 }
 
 .pt-popup .pt-word-tier {
-  padding: 12px 14px 10px;
+  padding: 12px 30px 10px 14px; /* extra right padding only for the close (×) button */
+  position: relative;
 }
 
 .pt-popup .pt-word-header {
@@ -578,51 +579,102 @@
 .pt-popup .pt-alt-pinyin { font-weight: 600; opacity: 0.9; }
 .pt-popup .pt-alt-def { opacity: 0.85; }
 
-/* Pinyin strip — collapsible. Collapsed default = a single thin row
- * (≈18px) with just a chevron toggle; expanded reveals ruby
- * annotations over each word in the sentence. */
-.pt-popup .pt-pinyin-strip {
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+/* Bottom tier: segmented Translation/Pinyin toggle on top of a single
+ * content slot. Only the view selected by [data-view] is visible. */
+.pt-popup .pt-bottom-tier {
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 8px 14px 12px;
   position: relative;
 }
 
-.pt-popup .pt-strip-toggle {
+/* Toolbar row: speaker | segmented toggle | LLM badge — single row,
+ * no extra vertical space beyond the toggle itself. */
+.pt-popup .pt-bottom-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.pt-popup .pt-view-segmented {
+  display: inline-flex;
+  background: rgba(99, 102, 241, 0.10);
+  border-radius: 6px;
+  padding: 2px;
+  font-size: calc(var(--hg-font-size, 16px) * 0.78);
+}
+
+.pt-popup .pt-view-seg-btn {
   border: 0;
   background: transparent;
-  width: 100%;
-  padding: 2px 14px;
-  text-align: left;
-  cursor: pointer;
-  font: inherit;
-  font-size: calc(var(--hg-font-size, 16px) * 0.7);
-  opacity: 0.55;
   color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  padding: 4px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  opacity: 0.65;
   line-height: 1.2;
 }
 
-.pt-popup .pt-strip-toggle:hover { opacity: 0.85; }
+.pt-popup .pt-view-seg-btn:hover { opacity: 0.95; }
 
-.pt-popup .pt-strip-toggle::before {
-  content: "▸ pinyin";
-  display: inline-block;
-}
-.pt-popup .pt-pinyin-strip.pt-strip-expanded .pt-strip-toggle::before {
-  content: "▾ pinyin";
+.pt-popup .pt-view-seg-btn.pt-seg-active {
+  background: rgba(99, 102, 241, 0.30);
+  opacity: 1;
+  font-weight: 600;
 }
 
-.pt-popup .pt-strip-inner {
-  display: none;
-  padding: 6px 14px 10px;
+/* View slots — only one is shown at a time. */
+.pt-popup .pt-view { display: none; }
+
+.pt-popup .pt-bottom-tier[data-view="translation"] .pt-view-translation {
+  display: block;
+  font-size: calc(var(--hg-font-size, 16px) * 0.95);
+}
+
+.pt-popup .pt-bottom-tier[data-view="pinyin"] .pt-view-pinyin {
+  display: flex;
   flex-wrap: wrap;
   gap: 6px 10px;
   font-size: calc(var(--hg-font-size, 16px) * 0.95);
   line-height: 1.9;
 }
 
-.pt-popup .pt-pinyin-strip.pt-strip-expanded .pt-strip-inner {
-  display: flex;
+.pt-popup .pt-view-translation.pt-loading,
+.pt-popup .pt-view-translation.pt-empty {
+  opacity: 0.65;
+  font-style: italic;
 }
 
+.pt-popup .pt-view-translation.pt-bootstrap::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+  background: rgba(99, 102, 241, 0.55);
+  vertical-align: middle;
+}
+
+.pt-popup .pt-view-translation.pt-llm::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+  background: rgba(34, 197, 94, 0.7);
+  vertical-align: middle;
+}
+
+.pt-popup .pt-view-translation.pt-error {
+  color: #b91c1c;
+  font-style: italic;
+}
+
+/* Pinyin strip rubies (now lives inside the bottom tier's pinyin view). */
 .pt-popup .pt-strip-ruby {
   display: inline-flex;
   flex-direction: column-reverse;
@@ -643,45 +695,6 @@
   background: rgba(255, 200, 0, 0.40);
 }
 
-.pt-popup .pt-sent-tier {
-  padding: 10px 14px 12px;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-  font-size: calc(var(--hg-font-size, 16px) * 0.95);
-}
-
-.pt-popup .pt-sent-tier.pt-loading,
-.pt-popup .pt-sent-tier.pt-empty {
-  opacity: 0.65;
-  font-style: italic;
-}
-
-.pt-popup .pt-sent-tier.pt-bootstrap::before {
-  content: "";
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  margin-right: 6px;
-  background: rgba(99, 102, 241, 0.55);
-  vertical-align: middle;
-}
-
-.pt-popup .pt-sent-tier.pt-llm::before {
-  content: "";
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  margin-right: 6px;
-  background: rgba(34, 197, 94, 0.7);
-  vertical-align: middle;
-}
-
-.pt-popup .pt-sent-tier.pt-error {
-  color: #b91c1c;
-  font-style: italic;
-}
-
 /* Inline spinner: small animated dot; replaced when text fills in. */
 .pt-popup .pt-spinner {
   display: inline-block;
@@ -696,22 +709,20 @@
   box-sizing: border-box;
 }
 
-/* Persistent LLM status badge (top-right corner, sits left of the
- * close button). Spinner while loading; cleared on Hot transition;
- * red "!" on failure. */
-.pt-popup .pt-llm-status {
-  position: absolute;
-  top: 8px;
-  right: 30px;
-  width: 16px;
-  height: 16px;
+/* Persistent LLM status badge — sits at the right end of the bottom-tier
+ * toolbar row, on the same horizontal level as the segmented toggle.
+ * Spinner while loading; cleared on Hot transition; red "!" on failure. */
+.pt-popup .pt-bottom-toolbar .pt-llm-status {
+  margin-left: auto; /* push to the row's right edge */
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  font-size: calc(var(--hg-font-size, 16px) * 0.7);
+  font-size: calc(var(--hg-font-size, 16px) * 0.65);
   font-weight: 700;
   text-align: center;
-  line-height: 16px;
+  line-height: 14px;
   box-sizing: border-box;
-  z-index: 1;
+  flex-shrink: 0;
 }
 
 .pt-popup .pt-llm-status.pt-llm-loading {
@@ -730,11 +741,9 @@
   to { transform: rotate(360deg); }
 }
 
-.pt-popup .pt-sent-tier {
-  position: relative;
-}
-
-.pt-popup .pt-speak-btn {
+/* Speaker (TTS) button — sits at the left end of the bottom-tier
+ * toolbar row, on the same horizontal level as the segmented toggle. */
+.pt-popup .pt-bottom-toolbar .pt-speak-btn {
   width: 22px;
   height: 22px;
   border: 0;
@@ -746,12 +755,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  vertical-align: -5px;
-  margin-right: 8px;
   flex-shrink: 0;
 }
 
-.pt-popup .pt-speak-btn:hover {
+.pt-popup .pt-bottom-toolbar .pt-speak-btn:hover {
   background: rgba(99, 102, 241, 0.24);
 }
 
@@ -793,7 +800,7 @@
   backdrop-filter: blur(8px);
 }
 .pt-popup.hg-light .pt-pinyin { color: #4b5563; }
-.pt-popup.hg-light .pt-sent-tier { border-top-color: rgba(0, 0, 0, 0.08); color: #374151; }
+.pt-popup.hg-light .pt-bottom-tier { border-top-color: rgba(0, 0, 0, 0.08); color: #374151; }
 .pt-popup.hg-light .pt-alt-list { border-top-color: rgba(0, 0, 0, 0.08); }
 
 .pt-popup.hg-dark {
@@ -802,13 +809,17 @@
   backdrop-filter: blur(8px);
 }
 .pt-popup.hg-dark .pt-pinyin { color: #a5b4fc; }
-.pt-popup.hg-dark .pt-sent-tier { border-top-color: rgba(255, 255, 255, 0.1); color: #d1d5db; }
+.pt-popup.hg-dark .pt-bottom-tier { border-top-color: rgba(255, 255, 255, 0.1); color: #d1d5db; }
 .pt-popup.hg-dark .pt-alt-list { border-top-color: rgba(255, 255, 255, 0.1); }
 .pt-popup.hg-dark .pt-add-vocab-btn,
-.pt-popup.hg-dark .pt-alt-btn {
+.pt-popup.hg-dark .pt-alt-btn,
+.pt-popup.hg-dark .pt-view-segmented {
   background: rgba(165, 180, 252, 0.16);
 }
-.pt-popup.hg-dark .pt-sent-tier.pt-error { color: #fca5a5; }
+.pt-popup.hg-dark .pt-view-seg-btn.pt-seg-active {
+  background: rgba(165, 180, 252, 0.32);
+}
+.pt-popup.hg-dark .pt-view-translation.pt-error { color: #fca5a5; }
 
 .pt-popup.hg-sepia {
   background: rgba(248, 240, 222, 0.98);
@@ -816,11 +827,15 @@
   backdrop-filter: blur(8px);
 }
 .pt-popup.hg-sepia .pt-pinyin { color: #7a624a; }
-.pt-popup.hg-sepia .pt-sent-tier { border-top-color: rgba(122, 98, 74, 0.25); color: #4b3a26; }
+.pt-popup.hg-sepia .pt-bottom-tier { border-top-color: rgba(122, 98, 74, 0.25); color: #4b3a26; }
 .pt-popup.hg-sepia .pt-alt-list { border-top-color: rgba(122, 98, 74, 0.25); }
 .pt-popup.hg-sepia .pt-add-vocab-btn,
-.pt-popup.hg-sepia .pt-alt-btn {
+.pt-popup.hg-sepia .pt-alt-btn,
+.pt-popup.hg-sepia .pt-view-segmented {
   background: rgba(180, 130, 70, 0.18);
+}
+.pt-popup.hg-sepia .pt-view-seg-btn.pt-seg-active {
+  background: rgba(180, 130, 70, 0.36);
 }
 
 /* CSS Custom Highlight API rules cannot live in Shadow DOM (they need
