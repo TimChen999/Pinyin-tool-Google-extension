@@ -16,7 +16,7 @@
  */
 
 import { convertToPinyin } from "./pinyin-service";
-import { queryLLM, type LLMResult } from "./llm-client";
+import { queryLLM, queryLLMSentence, type LLMResult } from "./llm-client";
 import {
   hashText,
   getFromCache,
@@ -25,6 +25,11 @@ import {
   saveErrorToCache,
   evictExpiredEntries,
 } from "./cache";
+import {
+  hashSentenceKey,
+  getSentenceFromCache,
+  saveSentenceToCache,
+} from "./sentence-cache";
 import {
   recordWords,
   removeWord,
@@ -44,6 +49,7 @@ import type {
   LLMConfig,
   PinyinRequest,
   PinyinResponseLocal,
+  SentenceTranslateRequest,
   VocabExample,
 } from "../shared/types";
 
@@ -251,6 +257,104 @@ function dedupedQueryLLM(
   return p;
 }
 
+// ─── Sentence-mode (click-flow) handler ───────────────────────────
+
+/**
+ * Handles SENTENCE_TRANSLATE_REQUEST from the click-flow content script.
+ *
+ *  1. Cache lookup (sentence + style + provider + model). On hit, send
+ *     the cached payload immediately so the popup transitions to Hot
+ *     without a network round-trip.
+ *  2. If LLM is disabled or unconfigured, send an error -- the content
+ *     script keeps the sentence in Bootstrap (Chrome translator) state.
+ *  3. Otherwise call queryLLMSentence. On success, cache + send. On
+ *     error, send an error message.
+ */
+async function handleSentenceTranslateRequest(
+  request: SentenceTranslateRequest,
+  tabId: number | undefined,
+): Promise<void> {
+  if (!tabId) return;
+
+  const settings = await getSettings();
+
+  const cacheKey = await hashSentenceKey(
+    request.sentence,
+    request.pinyinStyle,
+    settings.provider,
+    settings.model,
+  );
+
+  const cached = await getSentenceFromCache(cacheKey);
+  if (cached) {
+    chrome.tabs.sendMessage(tabId, {
+      type: "SENTENCE_TRANSLATE_RESPONSE_LLM",
+      sentence: request.sentence,
+      requestId: request.requestId,
+      translation: cached.translation,
+      words: cached.words,
+    });
+    return;
+  }
+
+  if (!settings.llmEnabled) {
+    chrome.tabs.sendMessage(tabId, {
+      type: "SENTENCE_TRANSLATE_ERROR",
+      sentence: request.sentence,
+      requestId: request.requestId,
+      error: "AI Translations are disabled in settings.",
+      code: "DISABLED",
+    });
+    return;
+  }
+
+  const preset = PROVIDER_PRESETS[settings.provider];
+  if (preset.requiresApiKey && !settings.apiKey) {
+    chrome.tabs.sendMessage(tabId, {
+      type: "SENTENCE_TRANSLATE_ERROR",
+      sentence: request.sentence,
+      requestId: request.requestId,
+      error: "Set up an API key in extension settings for translations.",
+      code: "AUTH_FAILED",
+    });
+    return;
+  }
+
+  const config: LLMConfig = {
+    provider: settings.provider,
+    apiKey: settings.apiKey,
+    baseUrl: settings.baseUrl,
+    model: settings.model,
+    maxTokens: LLM_MAX_TOKENS,
+    temperature: LLM_TEMPERATURE,
+  };
+
+  const result = await queryLLMSentence(
+    request.sentence,
+    request.pinyinStyle,
+    config,
+  );
+
+  if (result.ok) {
+    await saveSentenceToCache(cacheKey, result.data);
+    chrome.tabs.sendMessage(tabId, {
+      type: "SENTENCE_TRANSLATE_RESPONSE_LLM",
+      sentence: request.sentence,
+      requestId: request.requestId,
+      translation: result.data.translation,
+      words: result.data.words,
+    });
+  } else {
+    chrome.tabs.sendMessage(tabId, {
+      type: "SENTENCE_TRANSLATE_ERROR",
+      sentence: request.sentence,
+      requestId: request.requestId,
+      error: result.error.message,
+      code: result.error.code,
+    });
+  }
+}
+
 // ─── Vocab Recording + Example Sentences ──────────────────────────
 
 /**
@@ -314,6 +418,12 @@ chrome.runtime.onMessage.addListener(
     sender: chrome.runtime.MessageSender,
     sendResponse: (response: unknown) => void,
   ) => {
+    if (message.type === "SENTENCE_TRANSLATE_REQUEST") {
+      const req = message as unknown as SentenceTranslateRequest;
+      handleSentenceTranslateRequest(req, sender.tab?.id);
+      return;
+    }
+
     if (message.type === "RECORD_WORD") {
       const word = message.word as { chars: string; pinyin: string; definition: string };
       const example = message.example as

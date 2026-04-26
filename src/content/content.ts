@@ -34,6 +34,7 @@ import { runFallbackTranslation } from "../shared/fallback-translation";
 import type {
   ExtensionMessage,
   PinyinResponseLocal,
+  PinyinStyle,
   Theme,
 } from "../shared/types";
 import {
@@ -47,6 +48,12 @@ import {
   setOverlayContext,
 } from "./overlay";
 import { startOCRSelection } from "./ocr-selection";
+import {
+  initClickFlow,
+  setClickFlowSettings,
+  dismissClickFlow,
+} from "./click-flow";
+import { setClickPopupVocabCallback } from "./click-popup";
 
 // ─── Module state ──────────────────────────────────────────────────
 
@@ -326,6 +333,10 @@ const debouncedSelectionScan = debounce(() => {
 
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed) return;
+  // Single clicks (which the click-flow handles) leave a collapsed
+  // selection, so they bail above. Drag-select still falls through
+  // into the legacy auto-overlay flow, preserving that path for users
+  // who want it.
 
   const text = selection.toString().trim();
   if (!text) return;
@@ -580,6 +591,16 @@ document.addEventListener("keydown", (e: KeyboardEvent) => {
 // for the full pipeline (gate -> trim -> RECORD_WORD -> async
 // translate -> SET_EXAMPLE_TRANSLATION).
 setVocabCallback(handleVocabCapture);
+setClickPopupVocabCallback(handleVocabCapture);
+
+// ─── Click-flow init ───────────────────────────────────────────────
+
+// Boot the new click-driven hover/click flow. It installs its own
+// listeners (mousemove/click capture, keydown) and shares the Shadow
+// DOM host with the legacy overlay. The legacy mouseup-selection path
+// remains in this file but is gated by `cachedOverlayEnabled` and is
+// effectively superseded by the click flow when both are enabled.
+initClickFlow();
 
 // ─── Theme caching ─────────────────────────────────────────────────
 
@@ -589,13 +610,23 @@ setVocabCallback(handleVocabCapture);
  * need an async storage read.
  */
 chrome.storage.sync.get(
-  ["theme", "ttsEnabled", "overlayEnabled", "llmEnabled", "fontSize"],
+  ["theme", "ttsEnabled", "overlayEnabled", "llmEnabled", "fontSize", "pinyinStyle"],
   (result) => {
     if (result.theme) cachedTheme = result.theme as Theme;
     if (result.ttsEnabled !== undefined) cachedTtsEnabled = result.ttsEnabled as boolean;
     if (result.overlayEnabled !== undefined) cachedOverlayEnabled = result.overlayEnabled as boolean;
     if (result.llmEnabled !== undefined) cachedLlmEnabled = result.llmEnabled as boolean;
     if (typeof result.fontSize === "number") cachedFontSize = result.fontSize;
+    setClickFlowSettings({
+      theme: cachedTheme,
+      fontSize: cachedFontSize,
+      llmEnabled: cachedLlmEnabled,
+      // The click flow is gated by the same toggle used to gate the
+      // legacy mouseup auto-trigger; both off => extension is quiet
+      // unless the user uses the context-menu / shortcut / OCR.
+      clickFlowEnabled: cachedOverlayEnabled,
+      pinyinStyle: (result.pinyinStyle as PinyinStyle) ?? "toneMarks",
+    });
   },
 );
 
@@ -603,17 +634,30 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "sync") return;
   if (changes.theme?.newValue) {
     cachedTheme = changes.theme.newValue as Theme;
+    setClickFlowSettings({ theme: cachedTheme });
   }
   if (changes.ttsEnabled?.newValue !== undefined) {
     cachedTtsEnabled = changes.ttsEnabled.newValue as boolean;
   }
   if (changes.overlayEnabled?.newValue !== undefined) {
     cachedOverlayEnabled = changes.overlayEnabled.newValue as boolean;
+    setClickFlowSettings({ clickFlowEnabled: cachedOverlayEnabled });
+    if (!cachedOverlayEnabled) dismissClickFlow();
   }
   if (changes.llmEnabled?.newValue !== undefined) {
     cachedLlmEnabled = changes.llmEnabled.newValue as boolean;
+    setClickFlowSettings({ llmEnabled: cachedLlmEnabled });
   }
   if (typeof changes.fontSize?.newValue === "number") {
     cachedFontSize = changes.fontSize.newValue;
+    setClickFlowSettings({ fontSize: cachedFontSize });
+  }
+  if (changes.pinyinStyle?.newValue !== undefined) {
+    setClickFlowSettings({
+      pinyinStyle: changes.pinyinStyle.newValue as
+        | "toneMarks"
+        | "toneNumbers"
+        | "none",
+    });
   }
 });

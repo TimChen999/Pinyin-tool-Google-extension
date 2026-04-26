@@ -488,3 +488,188 @@
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ─── Click-flow popup (two-tier) ───────────────────────────────── */
+/*
+ * Distinct from .hg-overlay — the click-flow popup is its own root so
+ * the legacy selection / OCR / context-menu paths can keep using the
+ * existing layout while the click-driven hover-and-click path uses this.
+ */
+
+.pt-popup {
+  position: fixed;
+  z-index: 2147483647;
+  max-width: 360px;
+  min-width: 200px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.18);
+  animation: hg-fade-in 140ms ease-out;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: var(--hg-font-size, 16px);
+  line-height: 1.4;
+}
+
+.pt-popup .pt-word-tier {
+  padding: 12px 14px 10px;
+}
+
+.pt-popup .pt-word-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.pt-popup .pt-chars {
+  font-size: calc(var(--hg-font-size, 16px) * 1.45);
+  font-weight: 600;
+}
+
+.pt-popup .pt-pinyin {
+  font-size: calc(var(--hg-font-size, 16px) * 0.95);
+  opacity: 0.85;
+}
+
+.pt-popup .pt-gloss {
+  font-size: calc(var(--hg-font-size, 16px) * 0.92);
+  margin-bottom: 8px;
+  word-wrap: break-word;
+}
+
+.pt-popup .pt-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.pt-popup .pt-add-vocab-btn,
+.pt-popup .pt-alt-btn {
+  border: 0;
+  background: rgba(99, 102, 241, 0.15);
+  color: inherit;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: calc(var(--hg-font-size, 16px) * 0.78);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.pt-popup .pt-add-vocab-btn:hover:not(:disabled),
+.pt-popup .pt-alt-btn:hover {
+  background: rgba(99, 102, 241, 0.28);
+}
+
+.pt-popup .pt-add-vocab-btn.pt-added {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.pt-popup .pt-alt-list {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  list-style: none;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  font-size: calc(var(--hg-font-size, 16px) * 0.82);
+}
+
+.pt-popup .pt-alt-list li { padding: 2px 0; }
+.pt-popup .pt-alt-pinyin { font-weight: 600; opacity: 0.9; }
+.pt-popup .pt-alt-def { opacity: 0.85; }
+
+.pt-popup .pt-sent-tier {
+  padding: 10px 14px 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  font-size: calc(var(--hg-font-size, 16px) * 0.95);
+}
+
+.pt-popup .pt-sent-tier.pt-loading,
+.pt-popup .pt-sent-tier.pt-empty {
+  opacity: 0.65;
+  font-style: italic;
+}
+
+.pt-popup .pt-sent-tier.pt-bootstrap::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+  background: rgba(99, 102, 241, 0.55);
+  vertical-align: middle;
+}
+
+.pt-popup .pt-sent-tier.pt-llm::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+  background: rgba(34, 197, 94, 0.7);
+  vertical-align: middle;
+}
+
+.pt-popup .pt-sent-tier.pt-error {
+  color: #b91c1c;
+  font-style: italic;
+}
+
+.pt-popup .pt-close-btn {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  border: 0;
+  background: transparent;
+  font-size: 18px;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.5;
+  padding: 2px 6px;
+  line-height: 1;
+}
+.pt-popup .pt-close-btn:hover { opacity: 1; }
+
+/* Theme variants. */
+.pt-popup.hg-light {
+  background: rgba(255, 255, 255, 0.97);
+  color: #1a1a1a;
+  backdrop-filter: blur(8px);
+}
+.pt-popup.hg-light .pt-pinyin { color: #4b5563; }
+.pt-popup.hg-light .pt-sent-tier { border-top-color: rgba(0, 0, 0, 0.08); color: #374151; }
+.pt-popup.hg-light .pt-alt-list { border-top-color: rgba(0, 0, 0, 0.08); }
+
+.pt-popup.hg-dark {
+  background: rgba(31, 41, 55, 0.97);
+  color: #f3f4f6;
+  backdrop-filter: blur(8px);
+}
+.pt-popup.hg-dark .pt-pinyin { color: #a5b4fc; }
+.pt-popup.hg-dark .pt-sent-tier { border-top-color: rgba(255, 255, 255, 0.1); color: #d1d5db; }
+.pt-popup.hg-dark .pt-alt-list { border-top-color: rgba(255, 255, 255, 0.1); }
+.pt-popup.hg-dark .pt-add-vocab-btn,
+.pt-popup.hg-dark .pt-alt-btn {
+  background: rgba(165, 180, 252, 0.16);
+}
+.pt-popup.hg-dark .pt-sent-tier.pt-error { color: #fca5a5; }
+
+.pt-popup.hg-sepia {
+  background: rgba(248, 240, 222, 0.98);
+  color: #3a2f1f;
+  backdrop-filter: blur(8px);
+}
+.pt-popup.hg-sepia .pt-pinyin { color: #7a624a; }
+.pt-popup.hg-sepia .pt-sent-tier { border-top-color: rgba(122, 98, 74, 0.25); color: #4b3a26; }
+.pt-popup.hg-sepia .pt-alt-list { border-top-color: rgba(122, 98, 74, 0.25); }
+.pt-popup.hg-sepia .pt-add-vocab-btn,
+.pt-popup.hg-sepia .pt-alt-btn {
+  background: rgba(180, 130, 70, 0.18);
+}
+
+/* CSS Custom Highlight API rules cannot live in Shadow DOM (they need
+ * to apply to ranges in the host document); they're injected into
+ * document.head from src/content/page-highlight.ts at content-script
+ * init. */

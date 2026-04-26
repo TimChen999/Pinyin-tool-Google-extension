@@ -201,6 +201,60 @@ export interface ExtensionSettings {
 }
 
 /**
+ * One segmented word in the LLM's sentence response (click-flow path).
+ * `text` is the raw Chinese substring (or punctuation) the LLM produced
+ * for this slot. The contract is that `words.map(w => w.text).join("")`
+ * must equal the original sentence exactly — see SYSTEM_PROMPT_SENTENCE.
+ */
+export interface LLMSentenceWord {
+  text: string;
+  pinyin: string;
+  gloss: string;
+}
+
+/**
+ * Click-flow content -> service worker. Asks the SW for a per-sentence
+ * LLM enrichment (translation + per-word boundaries / contextual pinyin
+ * / contextual gloss). Cache key is derived from `sentence` + style +
+ * provider/model (see sentence-cache.ts).
+ */
+export interface SentenceTranslateRequest {
+  type: "SENTENCE_TRANSLATE_REQUEST";
+  sentence: string;
+  pinyinStyle: PinyinStyle;
+  /** Monotonic per-tab id; the content script discards stale responses. */
+  requestId: number;
+}
+
+/**
+ * Click-flow service worker -> content. Successful LLM response with
+ * the validated per-word breakdown. The content script must verify
+ * concat(words[].text) === sentence before applying.
+ */
+export interface SentenceTranslateResponseLLM {
+  type: "SENTENCE_TRANSLATE_RESPONSE_LLM";
+  sentence: string;
+  requestId: number;
+  translation: string;
+  words: LLMSentenceWord[];
+}
+
+/**
+ * Click-flow service worker -> content. The LLM call failed or the
+ * provider was unconfigured. The content script keeps the sentence in
+ * Bootstrap state (Chrome on-device translator + CC-CEDICT) and shows
+ * an inline error indicator.
+ */
+export interface SentenceTranslateError {
+  type: "SENTENCE_TRANSLATE_ERROR";
+  sentence: string;
+  requestId: number;
+  error: string;
+  /** Non-typed string here so we don't import the LLM client's enum into shared. */
+  code: string;
+}
+
+/**
  * Discriminated union of every message that can travel between
  * content script <-> service worker. The `type` field acts as the discriminant.
  * Includes the two trigger messages for context menu and keyboard shortcut.
@@ -211,6 +265,9 @@ export type ExtensionMessage =
   | PinyinResponseLocal
   | PinyinResponseLLM
   | PinyinError
+  | SentenceTranslateRequest
+  | SentenceTranslateResponseLLM
+  | SentenceTranslateError
   | { type: "CONTEXT_MENU_TRIGGER"; text: string }
   | { type: "COMMAND_TRIGGER" }
   | {

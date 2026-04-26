@@ -43,3 +43,6 @@ Thumbs.db
 
 # Claude Code per-user settings
 .claude/settings.local.json
+
+# CC-CEDICT data downloaded by scripts/download-cedict.mjs
+public/dict/cedict_ts.u8

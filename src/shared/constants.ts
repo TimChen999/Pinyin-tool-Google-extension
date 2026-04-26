@@ -185,6 +185,46 @@ export const MAX_CONTEXT_LENGTH = 400;
 /** Mouseup debounce to avoid firing during click-drag. (SPEC.md Section 10.4) */
 export const DEBOUNCE_MS = 100;
 
+// ─── CC-CEDICT (offline dictionary) ───────────────────────────────
+/**
+ * Web-accessible path to the bundled CC-CEDICT data file. The file is
+ * downloaded by scripts/download-cedict.mjs into public/dict/ at install
+ * time and copied to dist/dict/ by Vite. Resolved via
+ * chrome.runtime.getURL() in the content script.
+ */
+export const CEDICT_DICT_PATH = "dict/cedict_ts.u8";
+
+/**
+ * Maximum number of characters from the caret position passed to
+ * findLongest(). Mirrors Zhongwen's 30-char cap. Larger means the
+ * lookup walks more iterations before giving up; smaller risks
+ * missing very long fixed expressions (most Chinese words are 2-4
+ * characters; almost no dictionary entry exceeds 8).
+ */
+export const CEDICT_DEFAULT_LOOKUP_CHARS = 12;
+
+// ─── Sentence detection (click flow) ──────────────────────────────
+/**
+ * Single-character sentence terminators recognised by the click-flow
+ * sentence detector. Matched on text-node walks both backward (start
+ * of sentence is just past one of these) and forward (end of sentence
+ * is at one of these, inclusive).
+ */
+export const SENTENCE_DELIMS = new Set([
+  "。", // 。
+  "！", // ！
+  "？", // ？
+  "；", // ；
+  ".",
+  "!",
+  "?",
+  ";",
+  "\n",
+]);
+
+/** Hard cap on a detected sentence. Anything longer is hard-truncated. */
+export const SENTENCE_MAX_CHARS = 500;
+
 // ─── LLM System Prompt ────────────────────────────────────────────
 /**
  * The system instruction sent to every LLM provider. Defines the
@@ -211,5 +251,33 @@ Respond ONLY with valid JSON in this exact format:
     { "chars": "<characters>", "definition": "<contextual English definition>" }
   ],
   "translation": "<full English translation>"
+}`;
+
+/**
+ * System prompt for the click-flow sentence-mode LLM call. Returns a
+ * full per-word breakdown so the popup can upgrade Bootstrap (CC-CEDICT)
+ * data to LLM-contextual data once the response arrives, and so the
+ * sentence's word boundaries become LLM-driven for subsequent clicks
+ * within the same sentence.
+ *
+ * The "MUST concatenate" constraint is load-bearing: the content script
+ * validates concat(words[].text) === sentence on receipt and discards
+ * the response if violated, keeping the sentence in Bootstrap state.
+ */
+export const SYSTEM_PROMPT_SENTENCE = `You are a Chinese language assistant.
+Given one Chinese sentence, you must return:
+1. A natural English translation.
+2. The same sentence segmented into words and punctuation. The "text"
+   fields, when concatenated in order with no extra characters, MUST
+   equal the input sentence exactly.
+3. For each word: contextual pinyin and a concise contextual English gloss.
+   For punctuation entries, leave gloss as "" and pinyin as "".
+
+Respond ONLY with valid JSON in this exact format:
+{
+  "translation": "<English translation>",
+  "words": [
+    { "text": "<chars>", "pinyin": "<pinyin>", "gloss": "<English>" }
+  ]
 }`;
 

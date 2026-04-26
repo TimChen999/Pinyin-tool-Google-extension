@@ -4,8 +4,12 @@
   "description": "Chrome extension for Chinese text pinyin annotations and translations",
   "private": true,
   "scripts": {
+    "postinstall": "node scripts/download-cedict.mjs",
+    "predev": "node scripts/download-cedict.mjs",
+    "prebuild": "node scripts/download-cedict.mjs",
     "dev": "vite build --watch --mode development",
     "build": "vite build",
+    "download:cedict": "node scripts/download-cedict.mjs",
     "test": "vitest run",
     "test:watch": "vitest --watch"
   },
