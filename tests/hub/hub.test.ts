@@ -81,7 +81,7 @@ function buildHubDOM(): void {
               <button type="button" id="export-vocab" class="manage-menu-item">Export</button>
               <input type="file" id="import-file-input" accept=".json" hidden />
               <div class="manage-menu-divider"></div>
-              <button type="button" id="clear-vocab" class="manage-menu-item manage-menu-item-danger">Clear&hellip;</button>
+              <button type="button" id="clear-vocab" class="manage-menu-item manage-menu-item-danger">Clear</button>
             </div>
             <div id="clear-select-panel" class="clear-select-panel hidden">
               <button type="button" id="clear-back" class="manage-back-btn">Back</button>
@@ -119,7 +119,7 @@ function buildHubDOM(): void {
 
       <div id="tab-flashcards" class="hub-tab-content hidden">
       <div id="fc-setup" class="fc-setup">
-        <h2>Practice your vocabulary</h2>
+        <h2>Review Flashcards</h2>
         <div class="fc-setup-group">
           <p class="fc-setup-label">What to study</p>
           <div id="fc-bucket-summary" class="fc-bucket-summary"></div>

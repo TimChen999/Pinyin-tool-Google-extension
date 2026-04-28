@@ -215,9 +215,9 @@ body {
   width: 32px;
   height: 32px;
   padding: 0;
-  border: 1px solid transparent;
+  border: 1px solid #d1d5db;
   border-radius: 6px;
-  background: transparent;
+  background: #ffffff;
   color: #4b5563;
   cursor: pointer;
 }
@@ -1545,10 +1545,10 @@ body[data-theme="dark"] .vocab-search-clear { color: #9ca3af; }
 body[data-theme="dark"] .vocab-search-clear:hover { background: #4b5563; color: #f3f4f6; }
 body[data-theme="dark"] .vocab-search-hl { background: #78350f; color: #fde68a; }
 
-body[data-theme="dark"] .manage-btn { color: #d1d5db; }
+body[data-theme="dark"] .manage-btn { background: #374151; border-color: #4b5563; color: #d1d5db; }
 body[data-theme="dark"] .manage-btn:hover,
 body[data-theme="dark"] .manage-btn[aria-expanded="true"] {
-  background: #374151;
+  background: #4b5563;
   color: #f3f4f6;
 }
 
@@ -1991,9 +1991,9 @@ body[data-theme="dark"] .hub-tab-content::-webkit-scrollbar-thumb:hover {
   body[data-theme="auto"] .vocab-search-clear:hover { background: #4b5563; color: #f3f4f6; }
   body[data-theme="auto"] .vocab-search-hl { background: #78350f; color: #fde68a; }
 
-  body[data-theme="auto"] .manage-btn { color: #d1d5db; }
+  body[data-theme="auto"] .manage-btn { background: #374151; border-color: #4b5563; color: #d1d5db; }
   body[data-theme="auto"] .manage-btn:hover,
-  body[data-theme="auto"] .manage-btn[aria-expanded="true"] { background: #374151; color: #f3f4f6; }
+  body[data-theme="auto"] .manage-btn[aria-expanded="true"] { background: #4b5563; color: #f3f4f6; }
 
   body[data-theme="auto"] .manage-popover {
     background: #1f2937;
@@ -2189,9 +2189,9 @@ body[data-theme="sepia"] .vocab-search-clear { color: #8b7355; }
 body[data-theme="sepia"] .vocab-search-clear:hover { background: #e2d6b6; color: #5c4b37; }
 body[data-theme="sepia"] .vocab-search-hl { background: #f0deb4; color: #5c4b37; }
 
-body[data-theme="sepia"] .manage-btn { color: #8b7355; }
+body[data-theme="sepia"] .manage-btn { background: #ede4cf; border-color: #d4c8ab; color: #8b7355; }
 body[data-theme="sepia"] .manage-btn:hover,
-body[data-theme="sepia"] .manage-btn[aria-expanded="true"] { background: #ede4cf; color: #5c4b37; }
+body[data-theme="sepia"] .manage-btn[aria-expanded="true"] { background: #e2d6b6; color: #5c4b37; }
 
 body[data-theme="sepia"] .manage-popover {
   background: #f4ecd8;
