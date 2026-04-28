@@ -117,34 +117,118 @@ body {
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
 }
 
-.clear-btn {
-  padding: 6px 14px;
-  border: 1px solid #fca5a5;
+/* ─── Vocab search ────────────────────────────────────────────────
+   Lives in the middle of the controls row. Live-filters as the user
+   types; matches highlight in the rendered list via <mark>. */
+
+.vocab-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid #d1d5db;
   border-radius: 6px;
-  background: #fef2f2;
-  cursor: pointer;
+  background: #ffffff;
+  transition: border-color 0.1s, box-shadow 0.1s;
+}
+
+.vocab-search:focus-within {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.vocab-search-icon {
+  flex: 0 0 auto;
+  color: #9ca3af;
+}
+
+.vocab-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
   font-size: 13px;
-  white-space: nowrap;
-  color: #b91c1c;
-  font-weight: 500;
+  color: #1a1a1a;
+  padding: 0;
 }
 
-.clear-btn:hover {
-  background: #fee2e2;
-  border-color: #f87171;
-  color: #991b1b;
+.vocab-search-input::-webkit-search-cancel-button,
+.vocab-search-input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
 }
 
-/* ─── Clear popover ───────────────────────────────────────────────
-   Anchored to the right edge of the controls row. The anchor is
-   position:relative so the popover absolutely-positions against it,
-   independent of any later layout changes. */
+.vocab-search-input::placeholder {
+  color: #9ca3af;
+}
 
-.clear-anchor {
+.vocab-search-clear {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.vocab-search-clear:hover {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
+.vocab-search-clear.hidden {
+  display: none;
+}
+
+.vocab-search-hl {
+  background: #fef3c7;
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* ─── Manage popover (kebab) ──────────────────────────────────────
+   Right-edge anchored kebab button that opens a single popover
+   handling Import / Export / Clear. The popover swaps between
+   three panels in place: menu → clear-select → clear-confirm.
+   .manage-anchor is position:relative so the popover positions
+   against it. */
+
+.manage-anchor {
   position: relative;
+  flex: 0 0 auto;
 }
 
-.clear-popover {
+.manage-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #4b5563;
+  cursor: pointer;
+}
+
+.manage-btn:hover,
+.manage-btn[aria-expanded="true"] {
+  background: #f3f4f6;
+  color: #1a1a1a;
+}
+
+.manage-popover {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
@@ -153,11 +237,93 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 14px;
+  padding: 8px;
   background: #ffffff;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.manage-popover.hidden {
+  display: none;
+}
+
+/* Menu panel: Import / Export / Clear list. Each item is a full-width
+   row with an icon and label. */
+.manage-menu-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.manage-menu-panel.hidden {
+  display: none;
+}
+
+.manage-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #1f2937;
+  cursor: pointer;
+  text-align: left;
+}
+
+.manage-menu-item:hover {
+  background: #f3f4f6;
+}
+
+.manage-menu-item svg {
+  flex: 0 0 auto;
+  color: #6b7280;
+}
+
+.manage-menu-item-danger {
+  color: #b91c1c;
+}
+
+.manage-menu-item-danger svg {
+  color: #b91c1c;
+}
+
+.manage-menu-item-danger:hover {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.manage-menu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: #e5e7eb;
+}
+
+/* Back button at the top of the clear-select panel. Returns to the
+   menu state without dismissing the popover. */
+.manage-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  padding: 4px 6px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  color: #6b7280;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.manage-back-btn:hover {
+  background: #f3f4f6;
+  color: #1f2937;
 }
 
 .clear-popover-row {
@@ -344,34 +510,18 @@ body {
   pointer-events: none;
 }
 
-/* ─── Vocab Import/Export ─────────────────────────────────────── */
-
-.vocab-io-buttons {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.io-btn {
-  padding: 6px 14px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #f9fafb;
-  cursor: pointer;
-  font-size: 13px;
-  white-space: nowrap;
-  color: #374151;
-}
-
-.io-btn:hover {
-  background: #eff6ff;
-  border-color: #93c5fd;
-  color: #1d4ed8;
-}
+/* ─── Vocab IO status ─────────────────────────────────────────────
+   Brief inline message after Import / Export. Sits between the search
+   input and the manage button; collapses to zero when empty. */
 
 .io-status {
+  flex: 0 0 auto;
   font-size: 12px;
   white-space: nowrap;
+}
+
+.io-status:empty {
+  display: none;
 }
 
 .io-status.success {
@@ -1380,23 +1530,42 @@ body[data-theme="dark"] .vocab-controls select:focus {
   box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
 }
 
-body[data-theme="dark"] .clear-btn {
-  background: #450a0a;
-  border-color: #7f1d1d;
-  color: #fca5a5;
+body[data-theme="dark"] .vocab-search {
+  background: #374151;
+  border-color: #4b5563;
+}
+body[data-theme="dark"] .vocab-search:focus-within {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+}
+body[data-theme="dark"] .vocab-search-icon { color: #9ca3af; }
+body[data-theme="dark"] .vocab-search-input { color: #f3f4f6; }
+body[data-theme="dark"] .vocab-search-input::placeholder { color: #6b7280; }
+body[data-theme="dark"] .vocab-search-clear { color: #9ca3af; }
+body[data-theme="dark"] .vocab-search-clear:hover { background: #4b5563; color: #f3f4f6; }
+body[data-theme="dark"] .vocab-search-hl { background: #78350f; color: #fde68a; }
+
+body[data-theme="dark"] .manage-btn { color: #d1d5db; }
+body[data-theme="dark"] .manage-btn:hover,
+body[data-theme="dark"] .manage-btn[aria-expanded="true"] {
+  background: #374151;
+  color: #f3f4f6;
 }
 
-body[data-theme="dark"] .clear-btn:hover {
-  background: #7f1d1d;
-  border-color: #f87171;
-  color: #fecaca;
-}
-
-body[data-theme="dark"] .clear-popover {
+body[data-theme="dark"] .manage-popover {
   background: #1f2937;
   border-color: #374151;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
+body[data-theme="dark"] .manage-menu-item { color: #e5e7eb; }
+body[data-theme="dark"] .manage-menu-item:hover { background: #374151; }
+body[data-theme="dark"] .manage-menu-item svg { color: #9ca3af; }
+body[data-theme="dark"] .manage-menu-item-danger { color: #fca5a5; }
+body[data-theme="dark"] .manage-menu-item-danger svg { color: #fca5a5; }
+body[data-theme="dark"] .manage-menu-item-danger:hover { background: #450a0a; color: #fecaca; }
+body[data-theme="dark"] .manage-menu-divider { background: #374151; }
+body[data-theme="dark"] .manage-back-btn { color: #9ca3af; }
+body[data-theme="dark"] .manage-back-btn:hover { background: #374151; color: #f3f4f6; }
 body[data-theme="dark"] .clear-popover-label { color: #9ca3af; }
 body[data-theme="dark"] .clear-popover-checkbox { color: #d1d5db; }
 body[data-theme="dark"] .clear-popover-select,
@@ -1446,18 +1615,6 @@ body[data-theme="dark"] .clear-confirm-yes-btn {
 }
 body[data-theme="dark"] .clear-confirm-yes-fill { background: #dc2626; }
 body[data-theme="dark"] .clear-confirm-yes-btn.holding { color: #ffffff; }
-
-body[data-theme="dark"] .io-btn {
-  background: #374151;
-  border-color: #4b5563;
-  color: #d1d5db;
-}
-
-body[data-theme="dark"] .io-btn:hover {
-  background: #1e3a5f;
-  border-color: #60a5fa;
-  color: #93c5fd;
-}
 
 body[data-theme="dark"] .io-status.success {
   color: #4ade80;
@@ -1825,14 +1982,33 @@ body[data-theme="dark"] .hub-tab-content::-webkit-scrollbar-thumb:hover {
 
   body[data-theme="auto"] .vocab-controls select { background: #374151; color: #f3f4f6; border-color: #4b5563; }
   body[data-theme="auto"] .vocab-controls select:focus { border-color: #60a5fa; box-shadow: 0 0 0 2px rgba(96,165,250,0.2); }
-  body[data-theme="auto"] .clear-btn { background: #450a0a; border-color: #7f1d1d; color: #fca5a5; }
-  body[data-theme="auto"] .clear-btn:hover { background: #7f1d1d; border-color: #f87171; color: #fecaca; }
+  body[data-theme="auto"] .vocab-search { background: #374151; border-color: #4b5563; }
+  body[data-theme="auto"] .vocab-search:focus-within { border-color: #60a5fa; box-shadow: 0 0 0 2px rgba(96,165,250,0.2); }
+  body[data-theme="auto"] .vocab-search-icon { color: #9ca3af; }
+  body[data-theme="auto"] .vocab-search-input { color: #f3f4f6; }
+  body[data-theme="auto"] .vocab-search-input::placeholder { color: #6b7280; }
+  body[data-theme="auto"] .vocab-search-clear { color: #9ca3af; }
+  body[data-theme="auto"] .vocab-search-clear:hover { background: #4b5563; color: #f3f4f6; }
+  body[data-theme="auto"] .vocab-search-hl { background: #78350f; color: #fde68a; }
 
-  body[data-theme="auto"] .clear-popover {
+  body[data-theme="auto"] .manage-btn { color: #d1d5db; }
+  body[data-theme="auto"] .manage-btn:hover,
+  body[data-theme="auto"] .manage-btn[aria-expanded="true"] { background: #374151; color: #f3f4f6; }
+
+  body[data-theme="auto"] .manage-popover {
     background: #1f2937;
     border-color: #374151;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   }
+  body[data-theme="auto"] .manage-menu-item { color: #e5e7eb; }
+  body[data-theme="auto"] .manage-menu-item:hover { background: #374151; }
+  body[data-theme="auto"] .manage-menu-item svg { color: #9ca3af; }
+  body[data-theme="auto"] .manage-menu-item-danger { color: #fca5a5; }
+  body[data-theme="auto"] .manage-menu-item-danger svg { color: #fca5a5; }
+  body[data-theme="auto"] .manage-menu-item-danger:hover { background: #450a0a; color: #fecaca; }
+  body[data-theme="auto"] .manage-menu-divider { background: #374151; }
+  body[data-theme="auto"] .manage-back-btn { color: #9ca3af; }
+  body[data-theme="auto"] .manage-back-btn:hover { background: #374151; color: #f3f4f6; }
   body[data-theme="auto"] .clear-popover-label { color: #9ca3af; }
   body[data-theme="auto"] .clear-popover-checkbox { color: #d1d5db; }
   body[data-theme="auto"] .clear-popover-select,
@@ -1858,8 +2034,6 @@ body[data-theme="dark"] .hub-tab-content::-webkit-scrollbar-thumb:hover {
   body[data-theme="auto"] .clear-confirm-yes-fill { background: #dc2626; }
   body[data-theme="auto"] .clear-confirm-yes-btn.holding { color: #ffffff; }
 
-  body[data-theme="auto"] .io-btn { background: #374151; border-color: #4b5563; color: #d1d5db; }
-  body[data-theme="auto"] .io-btn:hover { background: #1e3a5f; border-color: #60a5fa; color: #93c5fd; }
   body[data-theme="auto"] .io-status.success { color: #4ade80; }
   body[data-theme="auto"] .io-status.error { color: #f87171; }
 
@@ -2003,24 +2177,36 @@ body[data-theme="sepia"] .vocab-controls select:focus {
   box-shadow: 0 0 0 2px rgba(184, 134, 11, 0.2);
 }
 
-body[data-theme="sepia"] .clear-btn {
-  background: #f5d6cb;
-  border-color: #c2856a;
-  color: #92400e;
-  font-weight: 500;
+body[data-theme="sepia"] .vocab-search { background: #ede4cf; border-color: #d4c8ab; }
+body[data-theme="sepia"] .vocab-search:focus-within {
+  border-color: #b8860b;
+  box-shadow: 0 0 0 2px rgba(184, 134, 11, 0.2);
 }
+body[data-theme="sepia"] .vocab-search-icon { color: #8b7355; }
+body[data-theme="sepia"] .vocab-search-input { color: #5c4b37; }
+body[data-theme="sepia"] .vocab-search-input::placeholder { color: #a08e6e; }
+body[data-theme="sepia"] .vocab-search-clear { color: #8b7355; }
+body[data-theme="sepia"] .vocab-search-clear:hover { background: #e2d6b6; color: #5c4b37; }
+body[data-theme="sepia"] .vocab-search-hl { background: #f0deb4; color: #5c4b37; }
 
-body[data-theme="sepia"] .clear-btn:hover {
-  background: #f0c4b4;
-  border-color: #a0664f;
-  color: #7c1d1d;
-}
+body[data-theme="sepia"] .manage-btn { color: #8b7355; }
+body[data-theme="sepia"] .manage-btn:hover,
+body[data-theme="sepia"] .manage-btn[aria-expanded="true"] { background: #ede4cf; color: #5c4b37; }
 
-body[data-theme="sepia"] .clear-popover {
+body[data-theme="sepia"] .manage-popover {
   background: #f4ecd8;
   border-color: #d4c8ab;
   box-shadow: 0 8px 24px rgba(92, 75, 55, 0.25);
 }
+body[data-theme="sepia"] .manage-menu-item { color: #5c4b37; }
+body[data-theme="sepia"] .manage-menu-item:hover { background: #ede4cf; }
+body[data-theme="sepia"] .manage-menu-item svg { color: #8b7355; }
+body[data-theme="sepia"] .manage-menu-item-danger { color: #92400e; }
+body[data-theme="sepia"] .manage-menu-item-danger svg { color: #92400e; }
+body[data-theme="sepia"] .manage-menu-item-danger:hover { background: #f5d6cb; color: #7c1d1d; }
+body[data-theme="sepia"] .manage-menu-divider { background: #d4c8ab; }
+body[data-theme="sepia"] .manage-back-btn { color: #8b7355; }
+body[data-theme="sepia"] .manage-back-btn:hover { background: #ede4cf; color: #5c4b37; }
 body[data-theme="sepia"] .clear-popover-label { color: #8b7355; }
 body[data-theme="sepia"] .clear-popover-checkbox { color: #5c4b37; }
 body[data-theme="sepia"] .clear-popover-select,
@@ -2070,18 +2256,6 @@ body[data-theme="sepia"] .clear-confirm-yes-btn {
 }
 body[data-theme="sepia"] .clear-confirm-yes-fill { background: #b91c1c; }
 body[data-theme="sepia"] .clear-confirm-yes-btn.holding { color: #fffaf0; }
-
-body[data-theme="sepia"] .io-btn {
-  background: #ede4cf;
-  border-color: #d4c8ab;
-  color: #5c4b37;
-}
-
-body[data-theme="sepia"] .io-btn:hover {
-  background: #e8d8b1;
-  border-color: #b8860b;
-  color: #b8860b;
-}
 
 body[data-theme="sepia"] .io-status.success { color: #15803d; }
 body[data-theme="sepia"] .io-status.error { color: #b91c1c; }

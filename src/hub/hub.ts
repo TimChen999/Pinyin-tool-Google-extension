@@ -81,9 +81,14 @@ function getElements() {
     vocabSort: document.getElementById("vocab-sort") as HTMLSelectElement,
     vocabBucketSummary: document.getElementById("vocab-bucket-summary") as HTMLDivElement | null,
     vocabList: document.getElementById("vocab-list") as HTMLDivElement,
+    vocabSearchInput: document.getElementById("vocab-search-input") as HTMLInputElement | null,
+    vocabSearchClear: document.getElementById("vocab-search-clear") as HTMLButtonElement | null,
+    manageAnchor: document.querySelector(".manage-anchor") as HTMLDivElement | null,
+    manageToggle: document.getElementById("manage-toggle") as HTMLButtonElement | null,
+    managePopover: document.getElementById("manage-popover") as HTMLDivElement | null,
+    manageMenuPanel: document.getElementById("manage-menu-panel") as HTMLDivElement | null,
     clearVocabBtn: document.getElementById("clear-vocab") as HTMLButtonElement,
-    clearAnchor: document.querySelector(".clear-anchor") as HTMLDivElement | null,
-    clearPopover: document.getElementById("clear-popover") as HTMLDivElement | null,
+    clearBack: document.getElementById("clear-back") as HTMLButtonElement | null,
     clearSelectPanel: document.getElementById("clear-select-panel") as HTMLDivElement | null,
     clearTimeline: document.getElementById("clear-timeline") as HTMLSelectElement | null,
     clearOnlyNotReviewed: document.getElementById("clear-only-not-reviewed") as HTMLInputElement | null,
@@ -598,6 +603,144 @@ function renderBucketSummary(
   }
 }
 
+// \u2500\u2500\u2500 Vocab search \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// Live-filters the rendered list by case- and tone-insensitive substring
+// match across chars, pinyin, definition, last-seen date, and seen
+// count. Composes with the bucket filter (search runs after) so chip
+// counts keep showing the full distribution.
+
+let vocabSearchQuery = "";
+
+/**
+ * Strips combining diacritics so tone-marked pinyin (`n\u01d0h\u01ceo`, `l\u01da`)
+ * matches the tone-free form a user types (`nihao`, `lu`). NFD splits
+ * precomposed vowels into base + combining mark; we drop the marks. The
+ * result has the same length as the original NFC string for the pinyin
+ * we store, so substring indexes line up between haystack and original
+ * \u2014 that's what makes index-aligned highlighting possible.
+ */
+function stripDiacritics(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function normalizeForSearch(s: string): string {
+  return stripDiacritics(s.toLowerCase());
+}
+
+/**
+ * Returns all [start, end) positions in `text` where a normalized form
+ * of `query` matches. Indexes are valid against the original string
+ * because stripDiacritics on NFC pinyin preserves length.
+ */
+function findMatchRanges(text: string, query: string): [number, number][] {
+  if (!query) return [];
+  const haystack = normalizeForSearch(text);
+  const needle = normalizeForSearch(query);
+  if (!needle) return [];
+  const ranges: [number, number][] = [];
+  let from = 0;
+  while (from <= haystack.length - needle.length) {
+    const idx = haystack.indexOf(needle, from);
+    if (idx === -1) break;
+    ranges.push([idx, idx + needle.length]);
+    from = idx + needle.length;
+  }
+  return ranges;
+}
+
+/**
+ * Appends `text` to `parent`, wrapping any spans matching the current
+ * search query in <mark class="vocab-search-hl">. Built with DOM nodes
+ * (not innerHTML) so user-supplied vocab definitions can't sneak HTML
+ * into the page.
+ */
+function appendWithHighlights(parent: Element, text: string, query: string): void {
+  const ranges = findMatchRanges(text, query);
+  if (ranges.length === 0) {
+    parent.appendChild(document.createTextNode(text));
+    return;
+  }
+  let cursor = 0;
+  for (const [start, end] of ranges) {
+    if (start > cursor) {
+      parent.appendChild(document.createTextNode(text.slice(cursor, start)));
+    }
+    const mark = document.createElement("mark");
+    mark.className = "vocab-search-hl";
+    mark.textContent = text.slice(start, end);
+    parent.appendChild(mark);
+    cursor = end;
+  }
+  if (cursor < text.length) {
+    parent.appendChild(document.createTextNode(text.slice(cursor)));
+  }
+}
+
+function metaTextFor(entry: VocabEntry): string {
+  const lastSeen = new Date(entry.lastSeen).toLocaleDateString();
+  let metaText = `Seen ${entry.count} time${entry.count !== 1 ? "s" : ""} \u00b7 Last seen ${lastSeen}`;
+  if (entry.totalReviews > 0) {
+    const accuracy = Math.round((entry.totalCorrect / entry.totalReviews) * 100);
+    metaText += ` \u00b7 Reviews: ${entry.totalReviews} \u00b7 Accuracy: ${accuracy}%`;
+  }
+  return metaText;
+}
+
+/**
+ * Used by the row filter (not by the highlighter). Drops whitespace in
+ * addition to lower-casing and stripping tones, so a query like
+ * "yinhang" still matches stored pinyin "yín háng" — the user
+ * shouldn't have to remember inter-syllable spacing. The highlighter
+ * keeps the stricter literal-substring rule, so a query that only
+ * matches loosely just produces an unhighlighted row.
+ */
+function normalizeForMatch(s: string): string {
+  return normalizeForSearch(s).replace(/\s+/g, "");
+}
+
+function entryMatchesSearch(entry: VocabEntry, query: string): boolean {
+  if (!query) return true;
+  const q = normalizeForMatch(query);
+  if (!q) return true;
+  if (normalizeForMatch(entry.chars).includes(q)) return true;
+  if (normalizeForMatch(entry.pinyin).includes(q)) return true;
+  if (normalizeForMatch(entry.definition).includes(q)) return true;
+  // Match against the rendered meta line so the user can search by
+  // last-seen date or seen-count exactly as it appears in the row.
+  if (normalizeForMatch(metaTextFor(entry)).includes(q)) return true;
+  return false;
+}
+
+function setupVocabSearch(els: ReturnType<typeof getElements>): void {
+  if (!els.vocabSearchInput) return;
+  const updateClearVisibility = (): void => {
+    const hasQuery = !!vocabSearchQuery;
+    els.vocabSearchClear?.classList.toggle("hidden", !hasQuery);
+  };
+  els.vocabSearchInput.addEventListener("input", () => {
+    vocabSearchQuery = els.vocabSearchInput?.value ?? "";
+    updateClearVisibility();
+    void renderVocabList(els);
+  });
+  els.vocabSearchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && vocabSearchQuery) {
+      e.stopPropagation();
+      els.vocabSearchInput!.value = "";
+      vocabSearchQuery = "";
+      updateClearVisibility();
+      void renderVocabList(els);
+    }
+  });
+  els.vocabSearchClear?.addEventListener("click", () => {
+    if (!els.vocabSearchInput) return;
+    els.vocabSearchInput.value = "";
+    vocabSearchQuery = "";
+    updateClearVisibility();
+    els.vocabSearchInput.focus();
+    void renderVocabList(els);
+  });
+}
+
 async function renderVocabList(els: ReturnType<typeof getElements>): Promise<void> {
   const allEntries = await getAllVocab();
   const sortBy = els.vocabSort.value;
@@ -614,13 +757,19 @@ async function renderVocabList(els: ReturnType<typeof getElements>): Promise<voi
     renderBucketSummary(els.vocabBucketSummary, allEntries, els);
   }
 
-  // Counts strip uses the unfiltered list so each chip always reflects
-  // the full distribution; the row list below is what the filter applies
-  // to.
-  const entries =
+  // Bucket filter first; chip counts on the strip above use the full
+  // distribution so the user can see "I have 12 confident words" while
+  // looking at a search-narrowed list.
+  const bucketFiltered =
     selectedBucketFilter === "all"
       ? allEntries
       : allEntries.filter((e) => getVocabBucket(e) === selectedBucketFilter);
+
+  // Search refines the bucket-filtered set. Empty query matches all.
+  const query = vocabSearchQuery.trim();
+  const entries = query
+    ? bucketFiltered.filter((e) => entryMatchesSearch(e, query))
+    : bucketFiltered;
 
   els.vocabList.innerHTML = "";
 
@@ -633,7 +782,13 @@ async function renderVocabList(els: ReturnType<typeof getElements>): Promise<voi
   if (entries.length === 0) {
     const empty = document.createElement("div");
     empty.className = "vocab-empty";
-    empty.textContent = `No words in "${bucketLabel(selectedBucketFilter as VocabBucket)}".`;
+    if (query && selectedBucketFilter !== "all") {
+      empty.textContent = `No matches for "${query}" in "${bucketLabel(selectedBucketFilter as VocabBucket)}".`;
+    } else if (query) {
+      empty.textContent = `No matches for "${query}".`;
+    } else {
+      empty.textContent = `No words in "${bucketLabel(selectedBucketFilter as VocabBucket)}".`;
+    }
     els.vocabList.appendChild(empty);
     return;
   }
@@ -644,21 +799,23 @@ async function renderVocabList(els: ReturnType<typeof getElements>): Promise<voi
 
     const primary = document.createElement("div");
     primary.className = "vocab-row-primary";
-    primary.innerHTML =
-      `<span class="vocab-chars">${entry.chars}</span>` +
-      `<span class="vocab-pinyin">${entry.pinyin}</span>` +
-      `<span class="vocab-def">${entry.definition}</span>`;
+    const charsSpan = document.createElement("span");
+    charsSpan.className = "vocab-chars";
+    appendWithHighlights(charsSpan, entry.chars, query);
+    const pinyinSpan = document.createElement("span");
+    pinyinSpan.className = "vocab-pinyin";
+    appendWithHighlights(pinyinSpan, entry.pinyin, query);
+    const defSpan = document.createElement("span");
+    defSpan.className = "vocab-def";
+    appendWithHighlights(defSpan, entry.definition, query);
+    primary.appendChild(charsSpan);
+    primary.appendChild(pinyinSpan);
+    primary.appendChild(defSpan);
     primary.appendChild(renderBucketPill(getVocabBucket(entry)));
 
     const metaDiv = document.createElement("div");
     metaDiv.className = "vocab-row-meta";
-    const lastSeen = new Date(entry.lastSeen).toLocaleDateString();
-    let metaText = `Seen ${entry.count} time${entry.count !== 1 ? "s" : ""} \u00b7 Last seen ${lastSeen}`;
-    if (entry.totalReviews > 0) {
-      const accuracy = Math.round((entry.totalCorrect / entry.totalReviews) * 100);
-      metaText += ` \u00b7 Reviews: ${entry.totalReviews} \u00b7 Accuracy: ${accuracy}%`;
-    }
-    metaDiv.textContent = metaText;
+    appendWithHighlights(metaDiv, metaTextFor(entry), query);
 
     row.appendChild(primary);
     row.appendChild(metaDiv);
@@ -1326,28 +1483,29 @@ function setupKeyboard(els: ReturnType<typeof getElements>): void {
   });
 }
 
-// ─── Clear popover ───────────────────────────────────────────────────
-// Destructive flow on the vocab tab. The visible Clear button only
-// opens a popover; the actual deletion happens via a two-step "select
-// → confirm" path inside it.
+// ─── Manage popover (Import / Export / Clear) ────────────────────────
+// Right-edge kebab on the vocab tab opens a single popover that swaps
+// between three panels in place:
 //
-// Step 1 ("select" panel): pick the targets along two axes.
-//   - timeline: "Older than {7,30,180,365} days" (uses lastSeen) or
-//     "All time" (the nuclear option)
-//   - onlyNotReviewed: when checked, restricts the deletion to entries
-//     whose SRS bucket is "not-reviewed" — useful for pruning imported
-//     cruft without touching the user's active study set.
-// The "Clear N entries" button shows the live count and is disabled
-// when nothing matches.
+//   menu          → Import / Export / Clear…
+//   clear-select  → timeline + "Only Not reviewed" + Clear N entries
+//   clear-confirm → "Are you sure?" with No / Hold-to-delete Yes
 //
-// Step 2 ("confirm" panel): an "Are you sure?" view with a No button
-// (back to step 1) and a hold-to-delete Yes button. The Yes button
-// requires CLEAR_HOLD_DURATION_MS of continuous pointer/mouse hold
-// before firing; releasing early cancels and snaps the fill back. This
-// replaces the older type-DELETE flow with a uniform confirmation
-// regardless of how many entries are being removed.
+// Import and Export close the popover and leave a brief inline message
+// in #io-status. Clear advances to the clear-select state and from
+// there to clear-confirm. The Yes button on clear-confirm requires
+// CLEAR_HOLD_DURATION_MS of continuous pointer/mouse hold before
+// firing; releasing early cancels and snaps the fill back. The same
+// confirmation path is used regardless of how many entries are being
+// removed.
+//
+// Esc steps back one state (clear-confirm → clear-select → menu →
+// closed) and cancels any in-flight hold; outside-click closes the
+// whole popover.
 
 const CLEAR_HOLD_DURATION_MS = 2000;
+
+type ManageState = "menu" | "clear-select" | "clear-confirm";
 
 function parseClearTimelineDays(value: string | undefined): number | "all" {
   if (value === "all") return "all";
@@ -1374,34 +1532,40 @@ function selectClearTargets(
   });
 }
 
-function isClearPopoverOpen(els: ReturnType<typeof getElements>): boolean {
-  return !!els.clearPopover && !els.clearPopover.classList.contains("hidden");
+function isManagePopoverOpen(els: ReturnType<typeof getElements>): boolean {
+  return !!els.managePopover && !els.managePopover.classList.contains("hidden");
 }
 
 /**
- * Restores the popover to its initial "select" view. Used both when
- * reopening the popover and when the user clicks No on the confirm
- * step or anywhere else that cancels mid-flow.
+ * Show exactly one of the three panels inside the popover. Swapping
+ * states never closes the popover; closing is a separate concern.
  */
-function showClearSelectPanel(els: ReturnType<typeof getElements>): void {
-  els.clearSelectPanel?.classList.remove("hidden");
-  els.clearConfirmPanel?.classList.add("hidden");
+function showManageState(
+  els: ReturnType<typeof getElements>,
+  state: ManageState,
+): void {
+  els.manageMenuPanel?.classList.toggle("hidden", state !== "menu");
+  els.clearSelectPanel?.classList.toggle("hidden", state !== "clear-select");
+  els.clearConfirmPanel?.classList.toggle("hidden", state !== "clear-confirm");
+  // Any state change cancels a half-finished hold animation.
   els.clearConfirmYes?.classList.remove("holding");
 }
 
-function closeClearPopover(els: ReturnType<typeof getElements>): void {
-  if (!els.clearPopover) return;
-  els.clearPopover.classList.add("hidden");
+function closeManagePopover(els: ReturnType<typeof getElements>): void {
+  if (!els.managePopover) return;
+  els.managePopover.classList.add("hidden");
+  els.manageToggle?.setAttribute("aria-expanded", "false");
   els.clearVocabBtn?.setAttribute("aria-expanded", "false");
-  showClearSelectPanel(els);
+  // Reset to the menu state so reopening doesn't drop the user back
+  // mid-flow on a previous open.
+  showManageState(els, "menu");
 }
 
-function openClearPopover(els: ReturnType<typeof getElements>): void {
-  if (!els.clearPopover) return;
-  els.clearPopover.classList.remove("hidden");
-  els.clearVocabBtn?.setAttribute("aria-expanded", "true");
-  showClearSelectPanel(els);
-  void refreshClearPopoverState(els);
+function openManagePopover(els: ReturnType<typeof getElements>): void {
+  if (!els.managePopover) return;
+  els.managePopover.classList.remove("hidden");
+  els.manageToggle?.setAttribute("aria-expanded", "true");
+  showManageState(els, "menu");
 }
 
 /**
@@ -1425,15 +1589,35 @@ async function refreshClearPopoverState(
   els.clearExecute.classList.toggle("clear-execute-btn-armed", count > 0);
 }
 
-function setupClearPopover(els: ReturnType<typeof getElements>): void {
+/**
+ * Returns the current state of the manage popover, or null when the
+ * popover is closed. Used to drive Esc-stepping and outside-click
+ * dismissal without a separate state variable.
+ */
+function getManageState(
+  els: ReturnType<typeof getElements>,
+): ManageState | null {
+  if (!isManagePopoverOpen(els)) return null;
+  if (els.clearConfirmPanel && !els.clearConfirmPanel.classList.contains("hidden")) {
+    return "clear-confirm";
+  }
+  if (els.clearSelectPanel && !els.clearSelectPanel.classList.contains("hidden")) {
+    return "clear-select";
+  }
+  return "menu";
+}
+
+function setupManagePopover(els: ReturnType<typeof getElements>): void {
   // Older callers / minimal test fixtures may not include the popover
   // markup; fall back to the simple confirm() flow so the page still
   // works without the new UI mounted.
   if (
-    !els.clearPopover ||
+    !els.managePopover ||
+    !els.manageAnchor ||
+    !els.manageToggle ||
+    !els.manageMenuPanel ||
     !els.clearTimeline ||
     !els.clearExecute ||
-    !els.clearAnchor ||
     !els.clearSelectPanel ||
     !els.clearConfirmPanel ||
     !els.clearConfirmYes ||
@@ -1445,16 +1629,58 @@ function setupClearPopover(els: ReturnType<typeof getElements>): void {
         renderVocabList(els);
       }
     });
+    els.exportBtn?.addEventListener("click", () => handleExport(els));
+    els.importBtn?.addEventListener("click", () => els.importFileInput?.click());
+    els.importFileInput?.addEventListener("change", async () => {
+      const file = els.importFileInput?.files?.[0];
+      if (file) {
+        await handleImport(file, els);
+        if (els.importFileInput) els.importFileInput.value = "";
+      }
+    });
     return;
   }
 
-  els.clearVocabBtn?.addEventListener("click", (e) => {
+  // Open / close the popover from the kebab. Reopening always lands
+  // on the menu state — closeManagePopover resets it.
+  els.manageToggle.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (isClearPopoverOpen(els)) {
-      closeClearPopover(els);
+    if (isManagePopoverOpen(els)) {
+      cancelHold();
+      closeManagePopover(els);
     } else {
-      openClearPopover(els);
+      openManagePopover(els);
     }
+  });
+
+  // Import / Export close the popover and let #io-status carry the
+  // result. Import opens the OS file dialog via the hidden input.
+  els.exportBtn?.addEventListener("click", () => {
+    closeManagePopover(els);
+    void handleExport(els);
+  });
+  els.importBtn?.addEventListener("click", () => {
+    closeManagePopover(els);
+    els.importFileInput?.click();
+  });
+  els.importFileInput?.addEventListener("change", async () => {
+    const file = els.importFileInput?.files?.[0];
+    if (file) {
+      await handleImport(file, els);
+      if (els.importFileInput) els.importFileInput.value = "";
+    }
+  });
+
+  // Menu → clear-select: refresh the live count using the current
+  // timeline default before the user sees the panel.
+  els.clearVocabBtn?.addEventListener("click", () => {
+    showManageState(els, "clear-select");
+    void refreshClearPopoverState(els);
+  });
+
+  els.clearBack?.addEventListener("click", () => {
+    cancelHold();
+    showManageState(els, "menu");
   });
 
   els.clearTimeline.addEventListener("change", () => {
@@ -1466,23 +1692,22 @@ function setupClearPopover(els: ReturnType<typeof getElements>): void {
 
   // Keep clicks inside the popover from bubbling to the outside-click
   // handler that closes it.
-  els.clearPopover.addEventListener("click", (e) => {
+  els.managePopover.addEventListener("click", (e) => {
     e.stopPropagation();
   });
 
-  // Step 1 → 2: read the current target snapshot, swap to the confirm
-  // panel, and stash the snapshot on the Yes button so a 2-second hold
-  // can act on the same set the user just saw the count for. We freeze
-  // the targets here so a concurrent vocab-store mutation between the
-  // confirm dialog opening and the hold completing doesn't change the
-  // outcome under the user's fingers.
+  // clear-select → clear-confirm: read the current target snapshot,
+  // swap to the confirm panel, and freeze the snapshot so a concurrent
+  // vocab-store mutation between the confirm dialog opening and the
+  // hold completing doesn't change the outcome under the user's
+  // fingers.
   let pendingTargets: VocabEntry[] = [];
   let pendingTimeline: number | "all" = 30;
   let pendingOnlyNotReviewed = false;
   let pendingTotal = 0;
 
   els.clearExecute.addEventListener("click", async () => {
-    if (!els.clearTimeline || !els.clearConfirmCount || !els.clearConfirmPanel || !els.clearSelectPanel) return;
+    if (!els.clearTimeline || !els.clearConfirmCount) return;
     const timeline = parseClearTimelineDays(els.clearTimeline.value);
     const onlyNotReviewed = !!els.clearOnlyNotReviewed?.checked;
     const vocab = await getAllVocab();
@@ -1496,13 +1721,12 @@ function setupClearPopover(els: ReturnType<typeof getElements>): void {
 
     els.clearConfirmCount.textContent =
       `${targets.length} ${targets.length === 1 ? "entry" : "entries"}`;
-    els.clearSelectPanel.classList.add("hidden");
-    els.clearConfirmPanel.classList.remove("hidden");
+    showManageState(els, "clear-confirm");
   });
 
   els.clearConfirmNo.addEventListener("click", () => {
     cancelHold();
-    showClearSelectPanel(els);
+    showManageState(els, "clear-select");
   });
 
   // Hold-to-confirm: a single setTimeout for the full 2s. The CSS
@@ -1524,7 +1748,7 @@ function setupClearPopover(els: ReturnType<typeof getElements>): void {
     holdTimer = null;
     els.clearConfirmYes?.classList.remove("holding");
     if (pendingTargets.length === 0) {
-      closeClearPopover(els);
+      closeManagePopover(els);
       return;
     }
 
@@ -1543,7 +1767,7 @@ function setupClearPopover(els: ReturnType<typeof getElements>): void {
     const removed = pendingTargets.length;
     showStatus(els, `Cleared ${removed} ${removed === 1 ? "word" : "words"}.`, "success");
     pendingTargets = [];
-    closeClearPopover(els);
+    closeManagePopover(els);
     await renderVocabList(els);
   }
 
@@ -1566,20 +1790,27 @@ function setupClearPopover(els: ReturnType<typeof getElements>): void {
   els.clearConfirmYes.addEventListener("mouseup", cancelHold);
   els.clearConfirmYes.addEventListener("mouseleave", cancelHold);
 
-  // Outside-click + Escape close the popover. Bound on document so any
-  // click outside the anchor — including in the reader pane behind the
-  // hub — dismisses cleanly. Closing also cancels any in-flight hold.
+  // Outside-click closes the whole popover (cancels any in-flight
+  // hold). Escape steps back one state at a time so the user can back
+  // out of clear-confirm without losing the timeline they just picked,
+  // matching the same pattern used in macOS-style nested menus.
   document.addEventListener("click", (e) => {
-    if (!isClearPopoverOpen(els)) return;
+    if (!isManagePopoverOpen(els)) return;
     const target = e.target as Node | null;
-    if (target && els.clearAnchor?.contains(target)) return;
+    if (target && els.manageAnchor?.contains(target)) return;
     cancelHold();
-    closeClearPopover(els);
+    closeManagePopover(els);
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && isClearPopoverOpen(els)) {
-      cancelHold();
-      closeClearPopover(els);
+    const state = getManageState(els);
+    if (e.key !== "Escape" || state === null) return;
+    cancelHold();
+    if (state === "clear-confirm") {
+      showManageState(els, "clear-select");
+    } else if (state === "clear-select") {
+      showManageState(els, "menu");
+    } else {
+      closeManagePopover(els);
     }
   });
 }
@@ -1725,18 +1956,8 @@ export async function initHub(): Promise<void> {
 
   // Vocab controls
   els.vocabSort.addEventListener("change", () => renderVocabList(els));
-  setupClearPopover(els);
-
-  // Export / Import
-  els.exportBtn.addEventListener("click", () => handleExport(els));
-  els.importBtn.addEventListener("click", () => els.importFileInput.click());
-  els.importFileInput.addEventListener("change", async () => {
-    const file = els.importFileInput.files?.[0];
-    if (file) {
-      await handleImport(file, els);
-      els.importFileInput.value = "";
-    }
-  });
+  setupVocabSearch(els);
+  setupManagePopover(els);
 
   // Flashcard size selection. Toggle the selected class synchronously
   // so the click feels instant, then re-render the whole setup screen

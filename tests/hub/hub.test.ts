@@ -68,16 +68,23 @@ function buildHubDOM(): void {
           <option value="recent">Most recent</option>
           <option value="alpha">Alphabetical</option>
         </select>
-        <div class="vocab-io-buttons">
-          <button type="button" id="export-vocab" class="io-btn">Export</button>
-          <button type="button" id="import-vocab" class="io-btn">Import</button>
-          <input type="file" id="import-file-input" accept=".json" hidden />
-          <span id="io-status" class="io-status"></span>
+        <div class="vocab-search">
+          <input type="search" id="vocab-search-input" class="vocab-search-input" placeholder="Search" autocomplete="off" />
+          <button type="button" id="vocab-search-clear" class="vocab-search-clear hidden" aria-label="Clear search">&times;</button>
         </div>
-        <div class="clear-anchor">
-          <button type="button" id="clear-vocab" class="clear-btn" aria-haspopup="dialog" aria-expanded="false">Clear&hellip;</button>
-          <div id="clear-popover" class="clear-popover hidden" role="dialog" aria-label="Clear vocabulary">
-            <div id="clear-select-panel" class="clear-select-panel">
+        <span id="io-status" class="io-status"></span>
+        <div class="manage-anchor">
+          <button type="button" id="manage-toggle" class="manage-btn" aria-haspopup="dialog" aria-expanded="false" aria-label="Manage vocab">⋮</button>
+          <div id="manage-popover" class="manage-popover hidden" role="dialog" aria-label="Manage vocab">
+            <div id="manage-menu-panel" class="manage-menu-panel">
+              <button type="button" id="import-vocab" class="manage-menu-item">Import</button>
+              <button type="button" id="export-vocab" class="manage-menu-item">Export</button>
+              <input type="file" id="import-file-input" accept=".json" hidden />
+              <div class="manage-menu-divider"></div>
+              <button type="button" id="clear-vocab" class="manage-menu-item manage-menu-item-danger">Clear&hellip;</button>
+            </div>
+            <div id="clear-select-panel" class="clear-select-panel hidden">
+              <button type="button" id="clear-back" class="manage-back-btn">Back</button>
               <div class="clear-popover-row">
                 <label for="clear-timeline" class="clear-popover-label">Clear entries</label>
                 <select id="clear-timeline" class="clear-popover-select">
@@ -448,9 +455,9 @@ describe("hub page", () => {
     });
   });
 
-  // ─── Clear popover ─────────────────────────────────────────────
+  // ─── Manage popover ────────────────────────────────────────────
 
-  describe("clear popover", () => {
+  describe("manage popover", () => {
     /**
      * Builds a vocab snapshot whose lastSeen timestamps span "stale" and
      * "fresh" relative to `now`, so the timeline filter has meaningful
@@ -475,21 +482,61 @@ describe("hub page", () => {
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     }
 
+    /**
+     * Open the kebab → click Clear → wait for the clear-select panel to
+     * be ready (live count populated). Most tests want to act from this
+     * state, so factoring removes the boilerplate.
+     */
+    async function navigateToClearSelect(): Promise<void> {
+      (document.getElementById("manage-toggle") as HTMLButtonElement).click();
+      (document.getElementById("clear-vocab") as HTMLButtonElement).click();
+      const execute = document.getElementById("clear-execute") as HTMLButtonElement;
+      await vi.waitFor(() => expect(execute.disabled).toBe(false));
+    }
+
     afterEach(() => {
       vi.useRealTimers();
     });
 
-    it("opens popover on Clear button click", async () => {
+    it("opens menu panel on kebab click", async () => {
       mockedGetAllVocab.mockResolvedValue([...sampleVocab]);
       await loadHub();
 
-      const clearBtn = document.getElementById("clear-vocab") as HTMLButtonElement;
-      const popover = document.getElementById("clear-popover")!;
+      const toggle = document.getElementById("manage-toggle") as HTMLButtonElement;
+      const popover = document.getElementById("manage-popover")!;
+      const menuPanel = document.getElementById("manage-menu-panel")!;
       expect(popover.classList.contains("hidden")).toBe(true);
 
-      clearBtn.click();
+      toggle.click();
       expect(popover.classList.contains("hidden")).toBe(false);
-      expect(clearBtn.getAttribute("aria-expanded")).toBe("true");
+      expect(menuPanel.classList.contains("hidden")).toBe(false);
+      expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    });
+
+    it("clicking Clear in the menu swaps to the clear-select panel", async () => {
+      mockedGetAllVocab.mockResolvedValue([...sampleVocab]);
+      await loadHub();
+
+      (document.getElementById("manage-toggle") as HTMLButtonElement).click();
+      (document.getElementById("clear-vocab") as HTMLButtonElement).click();
+
+      const menuPanel = document.getElementById("manage-menu-panel")!;
+      const selectPanel = document.getElementById("clear-select-panel")!;
+      expect(menuPanel.classList.contains("hidden")).toBe(true);
+      expect(selectPanel.classList.contains("hidden")).toBe(false);
+    });
+
+    it("Back button on clear-select returns to the menu", async () => {
+      mockedGetAllVocab.mockResolvedValue([...sampleVocab]);
+      await loadHub();
+
+      await navigateToClearSelect();
+      (document.getElementById("clear-back") as HTMLButtonElement).click();
+
+      const menuPanel = document.getElementById("manage-menu-panel")!;
+      const selectPanel = document.getElementById("clear-select-panel")!;
+      expect(menuPanel.classList.contains("hidden")).toBe(false);
+      expect(selectPanel.classList.contains("hidden")).toBe(true);
     });
 
     it("Clear N entries swaps to the confirm panel with the live count", async () => {
@@ -498,15 +545,12 @@ describe("hub page", () => {
       mockedGetAllVocab.mockResolvedValue([...vocab]);
       await loadHub();
 
-      const clearBtn = document.getElementById("clear-vocab") as HTMLButtonElement;
-      clearBtn.click();
+      await navigateToClearSelect();
 
       const execute = document.getElementById("clear-execute") as HTMLButtonElement;
       await vi.waitFor(() => {
         expect(execute.textContent).toContain("2");
-        expect(execute.disabled).toBe(false);
       });
-
       execute.click();
 
       const selectPanel = document.getElementById("clear-select-panel")!;
@@ -517,7 +561,6 @@ describe("hub page", () => {
         expect(confirmPanel.classList.contains("hidden")).toBe(false);
         expect(confirmCount.textContent).toBe("2 entries");
       });
-      // Nothing is cleared just by reaching the confirm panel.
       expect(mockedRemoveWords).not.toHaveBeenCalled();
       expect(mockedClearVocab).not.toHaveBeenCalled();
     });
@@ -526,10 +569,8 @@ describe("hub page", () => {
       mockedGetAllVocab.mockResolvedValue([...sampleVocab]);
       await loadHub();
 
-      (document.getElementById("clear-vocab") as HTMLButtonElement).click();
-      const execute = document.getElementById("clear-execute") as HTMLButtonElement;
-      await vi.waitFor(() => expect(execute.disabled).toBe(false));
-      execute.click();
+      await navigateToClearSelect();
+      (document.getElementById("clear-execute") as HTMLButtonElement).click();
 
       const selectPanel = document.getElementById("clear-select-panel")!;
       const confirmPanel = document.getElementById("clear-confirm-panel")!;
@@ -549,17 +590,14 @@ describe("hub page", () => {
       mockedRemoveWords.mockResolvedValue(2);
       await loadHub();
 
-      (document.getElementById("clear-vocab") as HTMLButtonElement).click();
-      const execute = document.getElementById("clear-execute") as HTMLButtonElement;
-      await vi.waitFor(() => expect(execute.disabled).toBe(false));
-      execute.click();
+      await navigateToClearSelect();
+      (document.getElementById("clear-execute") as HTMLButtonElement).click();
 
       const yesBtn = document.getElementById("clear-confirm-yes") as HTMLButtonElement;
       await vi.waitFor(() => {
         expect(document.getElementById("clear-confirm-panel")!.classList.contains("hidden")).toBe(false);
       });
 
-      // Pre-arm fake timers so the 2s hold can be advanced deterministically.
       useFakeHoldTimers();
       yesBtn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
       expect(yesBtn.classList.contains("holding")).toBe(true);
@@ -571,17 +609,15 @@ describe("hub page", () => {
         expect(mockedRemoveWords).toHaveBeenCalledWith(["古旧A", "古旧B"]);
       });
       expect(mockedClearVocab).not.toHaveBeenCalled();
-      expect(document.getElementById("clear-popover")!.classList.contains("hidden")).toBe(true);
+      expect(document.getElementById("manage-popover")!.classList.contains("hidden")).toBe(true);
     });
 
     it("releasing Yes before the duration cancels the clear", async () => {
       mockedGetAllVocab.mockResolvedValue([...sampleVocab]);
       await loadHub();
 
-      (document.getElementById("clear-vocab") as HTMLButtonElement).click();
-      const execute = document.getElementById("clear-execute") as HTMLButtonElement;
-      await vi.waitFor(() => expect(execute.disabled).toBe(false));
-      execute.click();
+      await navigateToClearSelect();
+      (document.getElementById("clear-execute") as HTMLButtonElement).click();
 
       const yesBtn = document.getElementById("clear-confirm-yes") as HTMLButtonElement;
       await vi.waitFor(() => {
@@ -596,7 +632,6 @@ describe("hub page", () => {
       yesBtn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
       expect(yesBtn.classList.contains("holding")).toBe(false);
 
-      // Even if more time passes, the timer was cleared.
       vi.advanceTimersByTime(5000);
       vi.useRealTimers();
 
@@ -609,7 +644,7 @@ describe("hub page", () => {
       mockedClearVocab.mockResolvedValue(undefined);
       await loadHub();
 
-      (document.getElementById("clear-vocab") as HTMLButtonElement).click();
+      await navigateToClearSelect();
       const timeline = document.getElementById("clear-timeline") as HTMLSelectElement;
       timeline.value = "all";
       timeline.dispatchEvent(new Event("change"));
@@ -634,14 +669,12 @@ describe("hub page", () => {
       expect(mockedRemoveWords).not.toHaveBeenCalled();
     });
 
-    it("Escape key closes the popover and cancels any in-flight hold", async () => {
+    it("Escape steps back from clear-confirm to clear-select and cancels the hold", async () => {
       mockedGetAllVocab.mockResolvedValue([...sampleVocab]);
       await loadHub();
 
-      (document.getElementById("clear-vocab") as HTMLButtonElement).click();
-      const execute = document.getElementById("clear-execute") as HTMLButtonElement;
-      await vi.waitFor(() => expect(execute.disabled).toBe(false));
-      execute.click();
+      await navigateToClearSelect();
+      (document.getElementById("clear-execute") as HTMLButtonElement).click();
 
       const yesBtn = document.getElementById("clear-confirm-yes") as HTMLButtonElement;
       await vi.waitFor(() => {
@@ -653,7 +686,10 @@ describe("hub page", () => {
       expect(yesBtn.classList.contains("holding")).toBe(true);
 
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-      expect(document.getElementById("clear-popover")!.classList.contains("hidden")).toBe(true);
+      // First Escape steps back to clear-select; popover stays open.
+      expect(document.getElementById("clear-confirm-panel")!.classList.contains("hidden")).toBe(true);
+      expect(document.getElementById("clear-select-panel")!.classList.contains("hidden")).toBe(false);
+      expect(document.getElementById("manage-popover")!.classList.contains("hidden")).toBe(false);
       expect(yesBtn.classList.contains("holding")).toBe(false);
 
       vi.advanceTimersByTime(5000);
@@ -661,6 +697,125 @@ describe("hub page", () => {
 
       expect(mockedRemoveWords).not.toHaveBeenCalled();
       expect(mockedClearVocab).not.toHaveBeenCalled();
+    });
+
+    it("Escape from menu state closes the popover entirely", async () => {
+      mockedGetAllVocab.mockResolvedValue([...sampleVocab]);
+      await loadHub();
+
+      (document.getElementById("manage-toggle") as HTMLButtonElement).click();
+      expect(document.getElementById("manage-popover")!.classList.contains("hidden")).toBe(false);
+
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      expect(document.getElementById("manage-popover")!.classList.contains("hidden")).toBe(true);
+    });
+  });
+
+  // ─── Vocab search ──────────────────────────────────────────────
+
+  describe("vocab search", () => {
+    function searchInput(): HTMLInputElement {
+      return document.getElementById("vocab-search-input") as HTMLInputElement;
+    }
+    function setQuery(q: string): void {
+      const input = searchInput();
+      input.value = q;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+
+    it("filters by Chinese character substring", async () => {
+      mockedGetAllVocab.mockResolvedValue([...sampleVocab]);
+      await loadHub();
+
+      setQuery("银");
+      await vi.waitFor(() => {
+        const rows = vocabList().querySelectorAll(".vocab-row");
+        expect(rows).toHaveLength(1);
+        expect(rows[0].textContent).toContain("银行");
+      });
+    });
+
+    it("matches pinyin tone- and case-insensitively", async () => {
+      mockedGetAllVocab.mockResolvedValue([...sampleVocab]);
+      await loadHub();
+
+      // 银行 is "yín háng" — typing "yinhang" without tones should match.
+      setQuery("yinhang");
+      await vi.waitFor(() => {
+        const rows = vocabList().querySelectorAll(".vocab-row");
+        expect(rows).toHaveLength(1);
+        expect(rows[0].textContent).toContain("银行");
+      });
+    });
+
+    it("matches against the definition", async () => {
+      mockedGetAllVocab.mockResolvedValue([...sampleVocab]);
+      await loadHub();
+
+      setQuery("student");
+      await vi.waitFor(() => {
+        const rows = vocabList().querySelectorAll(".vocab-row");
+        expect(rows).toHaveLength(1);
+        expect(rows[0].textContent).toContain("学生");
+      });
+    });
+
+    it("highlights matches with <mark class='vocab-search-hl'>", async () => {
+      mockedGetAllVocab.mockResolvedValue([...sampleVocab]);
+      await loadHub();
+
+      setQuery("bank");
+      await vi.waitFor(() => {
+        const marks = vocabList().querySelectorAll("mark.vocab-search-hl");
+        expect(marks.length).toBeGreaterThan(0);
+        expect(marks[0].textContent).toBe("bank");
+      });
+    });
+
+    it("renders an empty state when the query matches nothing", async () => {
+      mockedGetAllVocab.mockResolvedValue([...sampleVocab]);
+      await loadHub();
+
+      setQuery("zzznonexistent");
+      await vi.waitFor(() => {
+        const empty = vocabList().querySelector(".vocab-empty");
+        expect(empty).not.toBeNull();
+        expect(empty!.textContent).toContain("zzznonexistent");
+      });
+    });
+
+    it("Esc inside the search input clears the query and reverts the list", async () => {
+      mockedGetAllVocab.mockResolvedValue([...sampleVocab]);
+      await loadHub();
+
+      setQuery("银");
+      await vi.waitFor(() => {
+        expect(vocabList().querySelectorAll(".vocab-row")).toHaveLength(1);
+      });
+
+      const input = searchInput();
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await vi.waitFor(() => {
+        expect(input.value).toBe("");
+        expect(vocabList().querySelectorAll(".vocab-row")).toHaveLength(sampleVocab.length);
+      });
+    });
+
+    it("clear button (×) wipes the query", async () => {
+      mockedGetAllVocab.mockResolvedValue([...sampleVocab]);
+      await loadHub();
+
+      setQuery("银");
+      const clearBtn = document.getElementById("vocab-search-clear") as HTMLButtonElement;
+      await vi.waitFor(() => {
+        expect(clearBtn.classList.contains("hidden")).toBe(false);
+      });
+
+      clearBtn.click();
+      await vi.waitFor(() => {
+        expect(searchInput().value).toBe("");
+        expect(vocabList().querySelectorAll(".vocab-row")).toHaveLength(sampleVocab.length);
+      });
     });
   });
 
