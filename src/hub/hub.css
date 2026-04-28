@@ -743,10 +743,62 @@ button.vocab-bucket-summary-chip.active {
   background: #f9fafb;
 }
 
+.fc-chars-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
 .fc-chars {
   font-size: 36px;
   font-weight: 700;
   text-align: center;
+}
+
+/* ─── TTS speaker button ───────────────────────────────────────── */
+/* Used inline next to the word and next to both faces' sentences.
+   Stays visually quiet so it doesn't compete with the chars; lights
+   up on hover so it's clearly clickable. */
+
+.fc-tts-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  line-height: 0;
+  transition: color 0.15s, background 0.15s;
+}
+
+.fc-tts-btn:hover {
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+.fc-tts-btn:active {
+  transform: scale(0.95);
+}
+
+/* ─── Karaoke per-word highlight during sentence TTS ───────────── */
+/* Mirrors the page click-tts highlight: a soft amber tint that
+   migrates across rubies as each word is spoken. The .fc-tts-active
+   class is toggled by speakSentenceWithKaraoke; the rule scopes to
+   the flashcard example sentence so the vocab card overlay isn't
+   accidentally affected. */
+
+.fc-example-sentence ruby.fc-tts-active {
+  background-color: rgba(255, 200, 0, 0.45);
+  border-radius: 4px;
+}
+
+.fc-tts-btn-inline {
+  vertical-align: middle;
+  flex: 0 0 auto;
 }
 
 .fc-answer {
@@ -781,6 +833,21 @@ button.vocab-bucket-summary-chip.active {
 }
 
 .fc-example.hidden {
+  display: none;
+}
+
+/* Front face: same DOM as the back, but rt + translation are dropped
+   so the user sees only context characters with the target highlight.
+   On flip, hub.ts removes .fc-front-mode and the full ruby + gloss
+   come back. display:none on rt collapses the reserved space so the
+   front sentence reads as a clean line of characters. */
+
+.fc-example.fc-front-mode rt {
+  display: none;
+}
+
+.fc-example.fc-front-mode .fc-example-translation,
+.fc-example.fc-front-mode .fc-example-translate-btn {
   display: none;
 }
 
@@ -1392,6 +1459,14 @@ body[data-theme="dark"] .fc-available {
   color: #6b7280;
 }
 
+body[data-theme="dark"] .fc-tts-btn {
+  color: #6b7280;
+}
+body[data-theme="dark"] .fc-tts-btn:hover {
+  color: #60a5fa;
+  background: #1e3a8a;
+}
+
 body[data-theme="dark"] .fc-rewind-btn {
   color: #6b7280;
 }
@@ -1540,6 +1615,8 @@ body[data-theme="dark"] .hub-tab-content::-webkit-scrollbar-thumb:hover {
   body[data-theme="auto"] .fc-available { color: #6b7280; }
   body[data-theme="auto"] .fc-close-btn { color: #6b7280; }
   body[data-theme="auto"] .fc-close-btn:hover { color: #d1d5db; background: #374151; }
+  body[data-theme="auto"] .fc-tts-btn { color: #6b7280; }
+  body[data-theme="auto"] .fc-tts-btn:hover { color: #60a5fa; background: #1e3a8a; }
   body[data-theme="auto"] .fc-rewind-btn { color: #6b7280; }
   body[data-theme="auto"] .fc-rewind-btn:hover:not(:disabled) { color: #d1d5db; background: #374151; }
   body[data-theme="auto"] .fc-progress-bar { background: #374151; }
@@ -1765,6 +1842,9 @@ body[data-theme="sepia"] .fc-setup-label { color: #8b7355; }
 body[data-theme="sepia"] .fc-available { color: #8b7355; }
 body[data-theme="sepia"] .fc-close-btn { color: #8b7355; }
 body[data-theme="sepia"] .fc-close-btn:hover { color: #5c4b37; background: #ede4cf; }
+
+body[data-theme="sepia"] .fc-tts-btn { color: #8b7355; }
+body[data-theme="sepia"] .fc-tts-btn:hover { color: #b8860b; background: #ede4cf; }
 
 body[data-theme="sepia"] .fc-rewind-btn { color: #8b7355; }
 body[data-theme="sepia"] .fc-rewind-btn:hover:not(:disabled) { color: #5c4b37; background: #ede4cf; }

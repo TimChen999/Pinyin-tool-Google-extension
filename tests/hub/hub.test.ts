@@ -109,16 +109,19 @@ function buildHubDOM(): void {
           </div>
         </div>
         <div class="fc-card">
-          <div id="fc-chars" class="fc-chars"></div>
+          <div class="fc-chars-row">
+            <div id="fc-chars" class="fc-chars"></div>
+            <button id="fc-tts-word" class="fc-tts-btn" type="button">🔊</button>
+          </div>
           <div id="fc-answer" class="fc-answer hidden">
             <div id="fc-pinyin" class="fc-pinyin"></div>
             <div id="fc-definition" class="fc-definition"></div>
-            <div id="fc-example" class="fc-example hidden"></div>
           </div>
+          <div id="fc-example" class="fc-example hidden"></div>
         </div>
         <div id="fc-actions" class="fc-actions">
           <button id="fc-flip" class="fc-flip-btn">Flip</button>
-          <div id="fc-judge" class="fc-judge hidden">
+          <div id="fc-judge" class="fc-judge">
             <button id="fc-wrong" class="fc-wrong-btn">&times;</button>
             <button id="fc-right" class="fc-right-btn">&#10003;</button>
           </div>
@@ -767,12 +770,11 @@ describe("hub page", () => {
       });
     }
 
-    it("populates fc-example with the first example sentence on flip", async () => {
+    it("populates fc-example on the initial front face (visible without flipping)", async () => {
       await startSession([wordWithExample]);
 
-      const flipBtn = document.getElementById("fc-flip") as HTMLButtonElement;
-      flipBtn.click();
-
+      // The example block now lives outside fc-answer, so it surfaces
+      // as soon as showCard runs -- no flip needed.
       await vi.waitFor(() => {
         const example = document.getElementById("fc-example")!;
         expect(example.classList.contains("hidden")).toBe(false);
@@ -787,9 +789,6 @@ describe("hub page", () => {
       const noExample: VocabEntry = { ...wordWithExample, examples: [] };
       await startSession([noExample]);
 
-      const flipBtn = document.getElementById("fc-flip") as HTMLButtonElement;
-      flipBtn.click();
-
       // Give renderFlashcardExample a tick to settle.
       await new Promise((r) => setTimeout(r, 20));
 
@@ -803,9 +802,6 @@ describe("hub page", () => {
         examples: [{ sentence: "我去银行存钱。", capturedAt: 1 }],
       };
       await startSession([untranslated]);
-
-      const flipBtn = document.getElementById("fc-flip") as HTMLButtonElement;
-      flipBtn.click();
 
       await vi.waitFor(() => {
         expect(document.querySelector(".fc-example-translate-btn")).not.toBeNull();
@@ -827,9 +823,6 @@ describe("hub page", () => {
       };
       await startSession([untranslated]);
 
-      const flipBtn = document.getElementById("fc-flip") as HTMLButtonElement;
-      flipBtn.click();
-
       await vi.waitFor(() => {
         expect(document.querySelector(".fc-example-translate-btn")).not.toBeNull();
       });
@@ -838,12 +831,10 @@ describe("hub page", () => {
       expect(btn.disabled).toBe(false);
     });
 
-    it("clears the example block between cards", async () => {
-      // Both cards carry an example so buildSession's shuffle order
-      // doesn't determine whether fc-example renders -- it always
-      // does. The assertion focuses on the *reset* behavior between
-      // cards: after answering, the previous card's example markup
-      // must not bleed into the next card before the user flips.
+    it("re-renders fc-example for each card so previous markup doesn't bleed", async () => {
+      // The example block is always visible across flips; what we
+      // care about between cards is that the new card's content
+      // replaces the old one's, not that the slot is briefly empty.
       const wordA: VocabEntry = {
         ...wordWithExample,
         chars: "银行",
@@ -858,23 +849,20 @@ describe("hub page", () => {
       };
       await startSession([wordA, wordB]);
 
-      const flipBtn = document.getElementById("fc-flip") as HTMLButtonElement;
-      const rightBtn = document.getElementById("fc-right") as HTMLButtonElement;
-      flipBtn.click();
-
       await vi.waitFor(() => {
-        expect(document.getElementById("fc-example")!.classList.contains("hidden")).toBe(false);
+        const trans = document.querySelector(".fc-example-translation");
+        expect(trans?.textContent).toBe("Go to bank.");
       });
 
+      const rightBtn = document.getElementById("fc-right") as HTMLButtonElement;
       rightBtn.click();
 
-      // showCard() runs synchronously inside answerCard after the
-      // updateFlashcardResult await -- the slot must be re-hidden
-      // and emptied before the next flip surfaces a new example.
+      // After answering, showCard fires renderFlashcardExample again
+      // for card B; the old "Go to bank." translation is replaced by
+      // the new card's content.
       await vi.waitFor(() => {
-        const slot = document.getElementById("fc-example")!;
-        expect(slot.classList.contains("hidden")).toBe(true);
-        expect(slot.innerHTML).toBe("");
+        const trans = document.querySelector(".fc-example-translation");
+        expect(trans?.textContent).toBe("He is working.");
       });
     });
   });
@@ -983,23 +971,51 @@ describe("hub page", () => {
       expect(document.getElementById("fc-progress")!.textContent).toBe("1/3");
     });
 
-    it("shows flip button initially, answer hidden", async () => {
+    it("shows flip and judge buttons initially with answer hidden (honor system)", async () => {
       await startSessionWith(sampleVocab);
 
+      // Flip + judge are always visible -- the honor-system flow lets
+      // the user grade themselves from either face. Answer area is the
+      // only thing toggled by the flip.
       expect(document.getElementById("fc-flip")!.classList.contains("hidden")).toBe(false);
       expect(document.getElementById("fc-answer")!.classList.contains("hidden")).toBe(true);
-      expect(document.getElementById("fc-judge")!.classList.contains("hidden")).toBe(true);
+      expect(document.getElementById("fc-judge")!.classList.contains("hidden")).toBe(false);
     });
 
-    it("flipping reveals answer and judge buttons", async () => {
+    it("flipping reveals answer; judge and flip remain visible", async () => {
       await startSessionWith(sampleVocab);
 
       const flipBtn = document.getElementById("fc-flip") as HTMLButtonElement;
       flipBtn.click();
 
       expect(document.getElementById("fc-answer")!.classList.contains("hidden")).toBe(false);
-      expect(document.getElementById("fc-flip")!.classList.contains("hidden")).toBe(true);
+      expect(document.getElementById("fc-flip")!.classList.contains("hidden")).toBe(false);
       expect(document.getElementById("fc-judge")!.classList.contains("hidden")).toBe(false);
+    });
+
+    it("flip is a true toggle: a second click hides the answer again", async () => {
+      await startSessionWith(sampleVocab);
+      const flipBtn = document.getElementById("fc-flip") as HTMLButtonElement;
+
+      flipBtn.click();
+      expect(document.getElementById("fc-answer")!.classList.contains("hidden")).toBe(false);
+
+      flipBtn.click();
+      expect(document.getElementById("fc-answer")!.classList.contains("hidden")).toBe(true);
+
+      flipBtn.click();
+      expect(document.getElementById("fc-answer")!.classList.contains("hidden")).toBe(false);
+    });
+
+    it("can grade Right without ever flipping (honor system)", async () => {
+      await startSessionWith(sampleVocab);
+
+      const rightBtn = document.getElementById("fc-right") as HTMLButtonElement;
+      rightBtn.click();
+
+      await vi.waitFor(() => {
+        expect(mockedUpdateResult).toHaveBeenCalledWith(expect.any(String), true);
+      });
     });
 
     it("answering right calls updateFlashcardResult with correct=true", async () => {
@@ -1066,6 +1082,233 @@ describe("hub page", () => {
       closeBtn.click();
 
       expect(document.getElementById("fc-summary")!.classList.contains("hidden")).toBe(false);
+    });
+  });
+
+  // ─── Front sentence & TTS ─────────────────────────────────────
+
+  describe("front sentence & TTS", () => {
+    /**
+     * Stubs SpeechSynthesisUtterance + window.speechSynthesis so the
+     * TTS handlers don't blow up in jsdom (which doesn't ship the
+     * Web Speech API). Returns the spy so individual tests can assert
+     * on the text passed in.
+     */
+    function stubSpeechSynthesis() {
+      const speakSpy = vi.fn();
+      const cancelSpy = vi.fn();
+      const utterances: Array<{ text: string; lang: string }> = [];
+      class FakeUtterance {
+        text: string;
+        lang = "";
+        constructor(text: string) {
+          this.text = text;
+        }
+      }
+      (globalThis as any).SpeechSynthesisUtterance = vi.fn(function (this: FakeUtterance, t: string) {
+        const u = new FakeUtterance(t);
+        utterances.push(u);
+        return u;
+      });
+      (globalThis as any).speechSynthesis = {
+        speak: (u: { text: string; lang: string }) => {
+          speakSpy(u);
+        },
+        cancel: cancelSpy,
+      };
+      return { speakSpy, cancelSpy, utterances };
+    }
+
+    function clearSpeechSynthesis() {
+      delete (globalThis as any).SpeechSynthesisUtterance;
+      delete (globalThis as any).speechSynthesis;
+    }
+
+    afterEach(() => {
+      clearSpeechSynthesis();
+    });
+
+    /**
+     * Builds a deterministic single-card session whose entry has one
+     * stored example, so the example block + TTS paths have data to
+     * render. Math.random is mocked near 1 so the shuffle is a no-op.
+     */
+    async function startSingleCardWithExample(): Promise<void> {
+      const vocab: VocabEntry[] = [
+        {
+          chars: "银行",
+          pinyin: "yín háng",
+          definition: "bank",
+          count: 1,
+          firstSeen: 1000,
+          lastSeen: 2000,
+          wrongStreak: 0,
+          totalReviews: 0,
+          totalCorrect: 0,
+          intervalDays: 0,
+          nextDueAt: 0,
+          examples: [{ sentence: "我去银行取钱。", capturedAt: 2000 }],
+        },
+      ];
+      mockedGetAllVocab.mockResolvedValue(vocab);
+      mockedUpdateResult.mockResolvedValue(undefined);
+      const rand = vi.spyOn(Math, "random").mockReturnValue(0.99999);
+      await loadHub();
+      await switchToFlashcards();
+      const startBtn = document.getElementById("fc-start") as HTMLButtonElement;
+      startBtn.click();
+      await vi.waitFor(() => {
+        expect(document.getElementById("fc-session")!.classList.contains("hidden")).toBe(false);
+      });
+      rand.mockRestore();
+    }
+
+    it("renders the sentence with ruby and a TTS button on the initial front face", async () => {
+      await startSingleCardWithExample();
+
+      // The example block lives outside fc-answer so it stays visible
+      // across flips. fc-answer (pinyin + def) is what flips.
+      const exampleSlot = document.getElementById("fc-example")!;
+      expect(document.getElementById("fc-answer")!.classList.contains("hidden")).toBe(true);
+      await vi.waitFor(() => {
+        expect(exampleSlot.classList.contains("hidden")).toBe(false);
+        expect(exampleSlot.querySelector("ruby")).not.toBeNull();
+        expect(exampleSlot.querySelector("button.fc-tts-btn")).not.toBeNull();
+      });
+      // Front-mode class is on so CSS hides rt + translation; the
+      // same DOM is reused on the back without rebuilding.
+      expect(exampleSlot.classList.contains("fc-front-mode")).toBe(true);
+    });
+
+    it("hides the example block when the card has no stored example", async () => {
+      mockedGetAllVocab.mockResolvedValue([
+        {
+          chars: "测试",
+          pinyin: "cè shì",
+          definition: "test",
+          count: 1,
+          firstSeen: 1000,
+          lastSeen: 2000,
+          wrongStreak: 0,
+          totalReviews: 0,
+          totalCorrect: 0,
+          intervalDays: 0,
+          nextDueAt: 0,
+        },
+      ]);
+      mockedUpdateResult.mockResolvedValue(undefined);
+      await loadHub();
+      await switchToFlashcards();
+      (document.getElementById("fc-start") as HTMLButtonElement).click();
+      await vi.waitFor(() => {
+        expect(document.getElementById("fc-session")!.classList.contains("hidden")).toBe(false);
+      });
+
+      const exampleSlot = document.getElementById("fc-example")!;
+      expect(exampleSlot.classList.contains("hidden")).toBe(true);
+    });
+
+    it("keeps the same example block visible after flipping; front-mode class toggles", async () => {
+      await startSingleCardWithExample();
+      const exampleSlot = document.getElementById("fc-example")!;
+      await vi.waitFor(() =>
+        expect(exampleSlot.querySelector("ruby")).not.toBeNull(),
+      );
+      const sentenceNodeBefore = exampleSlot.querySelector("ruby");
+      expect(exampleSlot.classList.contains("fc-front-mode")).toBe(true);
+
+      (document.getElementById("fc-flip") as HTMLButtonElement).click();
+
+      // After flipping, the answer area appears, the same sentence
+      // node is still in place (not re-created), and front-mode is
+      // off so CSS reveals rt + translation.
+      expect(document.getElementById("fc-answer")!.classList.contains("hidden")).toBe(false);
+      expect(exampleSlot.classList.contains("hidden")).toBe(false);
+      expect(exampleSlot.classList.contains("fc-front-mode")).toBe(false);
+      expect(exampleSlot.querySelector("ruby")).toBe(sentenceNodeBefore);
+
+      // Flipping back returns to front-mode without rebuilding.
+      (document.getElementById("fc-flip") as HTMLButtonElement).click();
+      expect(exampleSlot.classList.contains("fc-front-mode")).toBe(true);
+      expect(exampleSlot.querySelector("ruby")).toBe(sentenceNodeBefore);
+    });
+
+    it("speaks the word when the word TTS button is clicked", async () => {
+      const { speakSpy, cancelSpy } = stubSpeechSynthesis();
+      await startSingleCardWithExample();
+
+      const ttsBtn = document.getElementById("fc-tts-word") as HTMLButtonElement;
+      ttsBtn.click();
+
+      expect(cancelSpy).toHaveBeenCalledTimes(1);
+      expect(speakSpy).toHaveBeenCalledTimes(1);
+      const utterance = speakSpy.mock.calls[0][0];
+      expect(utterance.text).toBe("银行");
+      expect(utterance.lang).toBe("zh-CN");
+    });
+
+    it("speaks the sentence when the example speaker button is clicked", async () => {
+      const { speakSpy } = stubSpeechSynthesis();
+      await startSingleCardWithExample();
+
+      const exampleSlot = document.getElementById("fc-example")!;
+      await vi.waitFor(() =>
+        expect(exampleSlot.querySelector("button.fc-tts-btn")).not.toBeNull(),
+      );
+      const sentenceBtn = exampleSlot.querySelector("button.fc-tts-btn") as HTMLButtonElement;
+      sentenceBtn.click();
+
+      expect(speakSpy).toHaveBeenCalledTimes(1);
+      expect(speakSpy.mock.calls[0][0].text).toBe("我去银行取钱。");
+    });
+
+    it("paints the karaoke highlight on each ruby as the sentence plays", async () => {
+      vi.useFakeTimers();
+      try {
+        const { speakSpy } = stubSpeechSynthesis();
+        // The fake-timers + mocked Math.random combination must not
+        // interfere with the async startup. Reuse the helper but
+        // restore a non-async flush at the end.
+        await startSingleCardWithExample();
+
+        const exampleSlot = document.getElementById("fc-example")!;
+        await vi.waitFor(() =>
+          expect(exampleSlot.querySelector("ruby")).not.toBeNull(),
+        );
+        const rubies = Array.from(exampleSlot.querySelectorAll("ruby"));
+        // Sentence is "我去银行取钱。" -- pinyin-pro segments yield at
+        // least one ruby; assert the karaoke walks through them.
+        expect(rubies.length).toBeGreaterThan(0);
+
+        const sentenceBtn = exampleSlot.querySelector("button.fc-tts-btn") as HTMLButtonElement;
+        sentenceBtn.click();
+
+        // The mocked synth.speak captures the utterance. Manually fire
+        // its onstart so the karaoke timers are scheduled.
+        const utterance = speakSpy.mock.calls[0][0] as { onstart?: () => void };
+        expect(typeof utterance.onstart).toBe("function");
+        utterance.onstart!();
+
+        // First segment should light up immediately (offset 0).
+        await vi.advanceTimersByTimeAsync(1);
+        expect(rubies[0].classList.contains("fc-tts-active")).toBe(true);
+
+        // Advance through the whole sentence; later rubies pick up the
+        // highlight in turn while earlier ones drop it.
+        await vi.advanceTimersByTimeAsync(5_000);
+        const stillActive = rubies.filter((r) => r.classList.contains("fc-tts-active"));
+        // Only the final segment's ruby should remain lit at this point.
+        expect(stillActive.length).toBeLessThanOrEqual(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not throw when speech synthesis is unavailable", async () => {
+      // No stub installed: speechSynthesis is undefined in jsdom.
+      await startSingleCardWithExample();
+      const ttsBtn = document.getElementById("fc-tts-word") as HTMLButtonElement;
+      expect(() => ttsBtn.click()).not.toThrow();
     });
   });
 
@@ -1438,12 +1681,14 @@ describe("hub page", () => {
             <div id="fc-progress-bar-correct"></div>
             <div id="fc-progress-bar-wrong"></div>
             <div id="fc-chars"></div>
+            <button id="fc-tts-word"></button>
             <div id="fc-answer" class="hidden">
               <div id="fc-pinyin"></div>
               <div id="fc-definition"></div>
             </div>
+            <div id="fc-example" class="hidden"></div>
             <button id="fc-flip"></button>
-            <div id="fc-judge" class="hidden">
+            <div id="fc-judge">
               <button id="fc-wrong"></button>
               <button id="fc-right"></button>
             </div>

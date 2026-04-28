@@ -94,6 +94,7 @@ function getElements() {
     fcProgressBarWrong: document.getElementById("fc-progress-bar-wrong") as HTMLDivElement | null,
     fcClose: document.getElementById("fc-close") as HTMLButtonElement,
     fcChars: document.getElementById("fc-chars") as HTMLDivElement,
+    fcTtsWord: document.getElementById("fc-tts-word") as HTMLButtonElement | null,
     fcAnswer: document.getElementById("fc-answer") as HTMLDivElement,
     fcPinyin: document.getElementById("fc-pinyin") as HTMLDivElement,
     fcDefinition: document.getElementById("fc-definition") as HTMLDivElement,
@@ -233,20 +234,37 @@ function isHanSegment(seg: WordData): boolean {
  * yields nothing (e.g. empty input, or pinyin-pro failing on some
  * unusual input).
  */
+/**
+ * One unit emitted by renderHighlightedSentence. Han segments carry
+ * the matching `<ruby>` so the karaoke TTS can re-paint a CSS class
+ * onto each one as the sentence is spoken; non-Han segments (English,
+ * punctuation, numbers) get null because there's no element to light.
+ * The `text` field is what counts toward the per-word timing offset.
+ */
+interface SentenceSegment {
+  text: string;
+  element: HTMLElement | null;
+}
+
 function renderHighlightedSentence(
   el: HTMLElement,
   sentence: string,
   target: string,
   pinyinStyle: PinyinStyle = "toneMarks",
-): void {
+): SentenceSegment[] {
   const segments = convertToPinyin(sentence, pinyinStyle);
   if (segments.length === 0) {
     renderPlainHighlightedSentence(el, sentence, target);
-    return;
+    // No ruby produced -- karaoke degrades to "no visual highlight"
+    // but timing still flows through the speak helper, which advances
+    // by character regardless of whether an element is attached.
+    return [{ text: sentence, element: null }];
   }
+  const out: SentenceSegment[] = [];
   segments.forEach((seg) => {
     if (!isHanSegment(seg)) {
       el.appendChild(document.createTextNode(seg.chars));
+      out.push({ text: seg.chars, element: null });
       return;
     }
     const ruby = document.createElement("ruby");
@@ -261,7 +279,9 @@ function renderHighlightedSentence(
     rt.textContent = seg.pinyin;
     ruby.append(base, rt);
     el.appendChild(ruby);
+    out.push({ text: seg.chars, element: ruby });
   });
+  return out;
 }
 
 /**
@@ -676,11 +696,162 @@ function showCard(els: ReturnType<typeof getElements>): void {
   }
   els.fcAnswer.classList.add("hidden");
   els.fcFlip.classList.remove("hidden");
-  els.fcJudge.classList.add("hidden");
+  // Judge buttons stay visible across the whole session -- the flow is
+  // deliberately honor-system: the user can flip back and forth, hit
+  // the speaker, or just click ✓/× without flipping at all. showCard
+  // only resets the *front* face of the new card.
   session.isFlipped = false;
+
+  // Render the example block on the front face too so the sentence
+  // is visible regardless of flip state. The same block stays put when
+  // the user flips between faces -- only fc-answer (pinyin + def) is
+  // toggled by flipCard. The .fc-front-mode class hides rt + the
+  // translation via CSS while we're on the front face so the sentence
+  // shows plain characters only; flipCard removes it.
+  if (els.fcExample) els.fcExample.classList.add("fc-front-mode");
+  void renderFlashcardExample(els);
 
   updateProgressBar(els);
   updateRewindButton(els);
+}
+
+/**
+ * Speaks the supplied text via the browser SpeechSynthesis API with
+ * the zh-CN locale so the user gets Mandarin pronunciation when a
+ * Chinese voice is installed (Chrome doesn't ship one itself, so the
+ * underlying OS provides it). Cancels any in-flight utterance first
+ * so rapid clicks don't queue. No-op when the API is unavailable
+ * (e.g. older browsers, headless test environments).
+ */
+function speakChinese(text: string): void {
+  if (!text) return;
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  const synth = window.speechSynthesis;
+  synth.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = "zh-CN";
+  synth.speak(utterance);
+}
+
+// ─── Karaoke-style sentence playback ────────────────────────────────
+// Mirrors src/content/click-tts.ts: speak the whole sentence with one
+// utterance so prosody is preserved, then schedule per-word timers
+// that re-paint a `.fc-tts-active` class onto each ruby as it is read.
+// We can't rely on `boundary` events because most Chinese voices in
+// Chrome don't fire them; the legacy overlay's per-character timing
+// was solid in practice, so the same approach is used here.
+
+/** Mid-of-range estimate for Chinese TTS at rate=1.0 (ms per char). */
+const FC_MS_PER_CHAR_AT_RATE_1 = 200;
+/** Mild slowdown for clarity, identical to click-tts.ts. */
+const FC_TTS_RATE = 0.85;
+
+/** Active highlight classes + timer ids so we can clean them up. */
+let karaokeTimers: number[] = [];
+let karaokeRubies: HTMLElement[] = [];
+
+function clearKaraokeTimers(): void {
+  for (const id of karaokeTimers) window.clearTimeout(id);
+  karaokeTimers = [];
+}
+
+function clearKaraokeHighlight(): void {
+  for (const el of karaokeRubies) el.classList.remove("fc-tts-active");
+  karaokeRubies = [];
+}
+
+/**
+ * Speak the sentence with per-word highlight timing. `segments` drives
+ * the timeline: each segment's `text.length` adds to the cumulative
+ * character offset, and at that offset the previous ruby's class is
+ * cleared and the current segment's ruby (when present) is lit. On
+ * end / error / cancellation we drop all classes and timers.
+ *
+ * Cancels any in-flight utterance first so rapid clicks don't queue.
+ * Falls back to a plain speak when the SpeechSynthesisUtterance ctor
+ * is missing (jsdom, old browsers) so behavior is still functional.
+ */
+function speakSentenceWithKaraoke(
+  text: string,
+  segments: SentenceSegment[],
+): void {
+  if (!text) return;
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  if (typeof SpeechSynthesisUtterance === "undefined") return;
+
+  const synth = window.speechSynthesis;
+  synth.cancel();
+  clearKaraokeTimers();
+  clearKaraokeHighlight();
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = "zh-CN";
+  utterance.rate = FC_TTS_RATE;
+
+  const msPerChar = FC_MS_PER_CHAR_AT_RATE_1 / utterance.rate;
+
+  utterance.onstart = () => {
+    let cursor = 0;
+    for (const seg of segments) {
+      const offsetMs = cursor * msPerChar;
+      const segEl = seg.element;
+      const id = window.setTimeout(() => {
+        clearKaraokeHighlight();
+        if (segEl) {
+          segEl.classList.add("fc-tts-active");
+          karaokeRubies.push(segEl);
+        }
+      }, offsetMs);
+      karaokeTimers.push(id);
+      cursor += seg.text.length;
+    }
+  };
+
+  const cleanup = () => {
+    clearKaraokeTimers();
+    clearKaraokeHighlight();
+  };
+  utterance.onend = cleanup;
+  utterance.onerror = cleanup;
+
+  synth.speak(utterance);
+}
+
+/**
+ * Builds the small Feather-style speaker button reused for the word
+ * and the example sentence on both faces. When `segments` is provided
+ * the click runs the karaoke speaker (per-word highlight); otherwise
+ * a plain speakChinese is used (correct for the single-word button).
+ */
+function buildTtsButton(
+  text: string,
+  label: string,
+  segments?: SentenceSegment[],
+): HTMLButtonElement {
+  const btn = document.createElement("button");
+  btn.className = "fc-tts-btn fc-tts-btn-inline";
+  btn.type = "button";
+  btn.title = label;
+  btn.setAttribute("aria-label", label);
+  btn.innerHTML =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" ' +
+    'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round">' +
+    '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>' +
+    '<path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>' +
+    "</svg>";
+  btn.addEventListener("click", (e) => {
+    // Prevent the click from bubbling to any parent click-flow handler
+    // (e.g. a future "tap card to flip" listener) that we don't want
+    // to fire when the user just wants to play audio.
+    e.stopPropagation();
+    if (segments && segments.length > 0) {
+      speakSentenceWithKaraoke(text, segments);
+    } else {
+      speakChinese(text);
+    }
+  });
+  return btn;
 }
 
 /**
@@ -725,12 +896,21 @@ function updateRewindButton(els: ReturnType<typeof getElements>): void {
 }
 
 function flipCard(els: ReturnType<typeof getElements>): void {
-  if (!session || session.isFlipped) return;
-  session.isFlipped = true;
-  els.fcAnswer.classList.remove("hidden");
-  els.fcFlip.classList.add("hidden");
-  els.fcJudge.classList.remove("hidden");
-  void renderFlashcardExample(els);
+  if (!session) return;
+  // True toggle: flipping after the answer is showing returns to the
+  // front face. Judge buttons remain visible either way -- the flow is
+  // honor-system, so the user can answer from either side.
+  //
+  // The example block (sentence + ruby + translation) is rendered once
+  // per card by showCard and stays put across flips; flipping toggles
+  // fc-answer (pinyin + definition) and the .fc-front-mode class on
+  // fc-example, which CSS uses to hide rt + the translation while
+  // we're on the front face so the sentence shows plain characters.
+  session.isFlipped = !session.isFlipped;
+  els.fcAnswer.classList.toggle("hidden", !session.isFlipped);
+  if (els.fcExample) {
+    els.fcExample.classList.toggle("fc-front-mode", !session.isFlipped);
+  }
 }
 
 /**
@@ -770,8 +950,14 @@ async function renderFlashcardExample(
 
   const sentenceEl = document.createElement("div");
   sentenceEl.className = "fc-example-sentence";
-  renderHighlightedSentence(sentenceEl, example.sentence, card.chars, settings.pinyinStyle);
+  const sentenceSegments = renderHighlightedSentence(
+    sentenceEl,
+    example.sentence,
+    card.chars,
+    settings.pinyinStyle,
+  );
   slot.appendChild(sentenceEl);
+  slot.appendChild(buildTtsButton(example.sentence, "Play sentence", sentenceSegments));
 
   if (example.translation) {
     const transEl = document.createElement("div");
@@ -1103,19 +1289,18 @@ function setupKeyboard(els: ReturnType<typeof getElements>): void {
     const tag = (e.target as HTMLElement).tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
-    if (!session.isFlipped) {
-      if (e.key === " " || e.key === "Enter") {
-        e.preventDefault();
-        flipCard(els);
-      }
-    } else {
-      if (e.key === "ArrowLeft" || e.key === "1") {
-        e.preventDefault();
-        answerCard(false, els);
-      } else if (e.key === "ArrowRight" || e.key === "2") {
-        e.preventDefault();
-        answerCard(true, els);
-      }
+    // Honor-system flow: shortcuts work regardless of which face is
+    // showing. Space/Enter toggles the flip; 1/← grades wrong; 2/→
+    // grades right -- the user can answer without ever flipping.
+    if (e.key === " " || e.key === "Enter") {
+      e.preventDefault();
+      flipCard(els);
+    } else if (e.key === "ArrowLeft" || e.key === "1") {
+      e.preventDefault();
+      answerCard(false, els);
+    } else if (e.key === "ArrowRight" || e.key === "2") {
+      e.preventDefault();
+      answerCard(true, els);
     }
   });
 }
@@ -1300,6 +1485,15 @@ export async function initHub(): Promise<void> {
   els.fcRight.addEventListener("click", () => answerCard(true, els));
   els.fcClose.addEventListener("click", () => showSummary(els));
   els.fcRewind?.addEventListener("click", () => void rewindCard(els));
+
+  // Word-level TTS lives in the static header next to fc-chars and is
+  // wired once. The handler reads the current card from `session` at
+  // click time so it picks up rewinds / advances without re-binding.
+  els.fcTtsWord?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!session) return;
+    speakChinese(session.cards[session.currentIndex].chars);
+  });
   els.fcAgain.addEventListener("click", () => {
     selectedSize = lastSelectedSize;
     showSetup(els);
