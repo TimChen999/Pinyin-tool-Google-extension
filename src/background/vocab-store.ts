@@ -197,6 +197,39 @@ export async function updateFlashcardResult(
   await chrome.storage.local.set({ [STORAGE_KEY]: store });
 }
 
+/**
+ * Overwrites a single word's SRS scheduling fields with the supplied
+ * snapshot. Used by the flashcard rewind path to undo an answer that
+ * was already persisted -- updateFlashcardResult writes immediately
+ * (so partial sessions are not lost on tab close), so rewind needs an
+ * inverse that restores the pre-answer state captured before that
+ * write. No-op when the word is missing. Persists immediately so a
+ * rewind followed by a re-answer applies on top of the restored state.
+ */
+export async function restoreFlashcardState(
+  chars: string,
+  state: {
+    intervalDays: number;
+    nextDueAt: number;
+    wrongStreak: number;
+    totalReviews: number;
+    totalCorrect: number;
+  },
+): Promise<void> {
+  const result = await chrome.storage.local.get(STORAGE_KEY);
+  const store: VocabRecord = (result[STORAGE_KEY] as VocabRecord | undefined) ?? {};
+  const entry = store[chars];
+  if (!entry) return;
+
+  entry.intervalDays = state.intervalDays;
+  entry.nextDueAt = state.nextDueAt;
+  entry.wrongStreak = state.wrongStreak;
+  entry.totalReviews = state.totalReviews;
+  entry.totalCorrect = state.totalCorrect;
+
+  await chrome.storage.local.set({ [STORAGE_KEY]: store });
+}
+
 export async function removeWord(chars: string): Promise<void> {
   const result = await chrome.storage.local.get(STORAGE_KEY);
   const store: VocabRecord = (result[STORAGE_KEY] as VocabRecord | undefined) ?? {};

@@ -207,8 +207,15 @@
         <!-- Active session -->
         <div id="fc-session" class="fc-session hidden">
           <div class="fc-session-header">
-            <span id="fc-progress">Card 1 of 10</span>
-            <button id="fc-close" class="fc-close-btn" title="End session">&times;</button>
+            <div class="fc-progress-row">
+              <button id="fc-rewind" class="fc-rewind-btn" title="Previous card" aria-label="Previous card" disabled>&larr;</button>
+              <span id="fc-progress" class="fc-progress-text">1/10</span>
+              <button id="fc-close" class="fc-close-btn" title="End session">&times;</button>
+            </div>
+            <div class="fc-progress-bar" aria-hidden="true">
+              <div id="fc-progress-bar-correct" class="fc-progress-bar-correct"></div>
+              <div id="fc-progress-bar-wrong" class="fc-progress-bar-wrong"></div>
+            </div>
           </div>
           <div class="fc-card">
             <div id="fc-chars" class="fc-chars"></div>

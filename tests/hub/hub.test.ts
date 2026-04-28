@@ -19,6 +19,7 @@ vi.mock("../../src/background/vocab-store", () => ({
   removeWord: vi.fn(),
   setExampleTranslation: vi.fn(),
   updateFlashcardResult: vi.fn(),
+  restoreFlashcardState: vi.fn(),
   importVocab: vi.fn(),
 }));
 
@@ -28,6 +29,7 @@ import {
   removeWord,
   setExampleTranslation,
   updateFlashcardResult,
+  restoreFlashcardState,
   importVocab,
 } from "../../src/background/vocab-store";
 
@@ -36,6 +38,7 @@ const mockedClearVocab = clearVocab as ReturnType<typeof vi.fn>;
 const mockedRemoveWord = removeWord as ReturnType<typeof vi.fn>;
 const mockedSetExampleTranslation = setExampleTranslation as ReturnType<typeof vi.fn>;
 const mockedUpdateResult = updateFlashcardResult as ReturnType<typeof vi.fn>;
+const mockedRestoreState = restoreFlashcardState as ReturnType<typeof vi.fn>;
 const mockedImportVocab = importVocab as ReturnType<typeof vi.fn>;
 
 // ─── Sample data ─────────────────────────────────────────────────────
@@ -95,8 +98,15 @@ function buildHubDOM(): void {
 
       <div id="fc-session" class="fc-session hidden">
         <div class="fc-session-header">
-          <span id="fc-progress">Card 1 of 10</span>
-          <button id="fc-close" class="fc-close-btn">&times;</button>
+          <div class="fc-progress-row">
+            <button id="fc-rewind" class="fc-rewind-btn" disabled>&larr;</button>
+            <span id="fc-progress" class="fc-progress-text">1/10</span>
+            <button id="fc-close" class="fc-close-btn">&times;</button>
+          </div>
+          <div class="fc-progress-bar">
+            <div id="fc-progress-bar-correct" class="fc-progress-bar-correct"></div>
+            <div id="fc-progress-bar-wrong" class="fc-progress-bar-wrong"></div>
+          </div>
         </div>
         <div class="fc-card">
           <div id="fc-chars" class="fc-chars"></div>
@@ -139,6 +149,7 @@ async function loadHub() {
     removeWord: mockedRemoveWord,
     setExampleTranslation: mockedSetExampleTranslation,
     updateFlashcardResult: mockedUpdateResult,
+    restoreFlashcardState: mockedRestoreState,
     importVocab: mockedImportVocab,
   }));
 
@@ -206,6 +217,7 @@ describe("hub page", () => {
     mockedRemoveWord.mockReset();
     mockedSetExampleTranslation.mockReset();
     mockedUpdateResult.mockReset();
+    mockedRestoreState.mockReset();
     mockedImportVocab.mockReset();
   });
 
@@ -968,7 +980,7 @@ describe("hub page", () => {
 
       const chars = document.getElementById("fc-chars")!;
       expect(chars.textContent!.length).toBeGreaterThan(0);
-      expect(document.getElementById("fc-progress")!.textContent).toContain("Card 1 of");
+      expect(document.getElementById("fc-progress")!.textContent).toBe("1/3");
     });
 
     it("shows flip button initially, answer hidden", async () => {
@@ -1028,7 +1040,7 @@ describe("hub page", () => {
       rightBtn.click();
 
       await vi.waitFor(() => {
-        expect(document.getElementById("fc-progress")!.textContent).toContain("Card 2 of");
+        expect(document.getElementById("fc-progress")!.textContent).toBe("2/3");
       });
     });
 
@@ -1054,6 +1066,241 @@ describe("hub page", () => {
       closeBtn.click();
 
       expect(document.getElementById("fc-summary")!.classList.contains("hidden")).toBe(false);
+    });
+  });
+
+  // ─── Progress bar & rewind ────────────────────────────────────
+
+  describe("progress bar & rewind", () => {
+    /**
+     * Builds a 4-card deck with deterministic order ("a", "b", "c", "d")
+     * by re-importing hub with a buildSession spy that returns the deck
+     * verbatim. Avoids the production shuffle so the rewind tests can
+     * make assertions about which card is on screen at each step.
+     */
+    async function startOrderedSession(chars: string[]) {
+      const vocab: VocabEntry[] = chars.map((c) => ({
+        chars: c,
+        pinyin: `${c}-pinyin`,
+        definition: `${c}-def`,
+        count: 1,
+        firstSeen: 1000,
+        lastSeen: 2000,
+        wrongStreak: 0,
+        totalReviews: 0,
+        totalCorrect: 0,
+        intervalDays: 0,
+        nextDueAt: 0,
+      }));
+      mockedGetAllVocab.mockResolvedValue(vocab);
+      mockedUpdateResult.mockResolvedValue(undefined);
+      mockedRestoreState.mockResolvedValue(undefined);
+
+      // Force the session order to match `chars` so the test can rely
+      // on which card is on screen at each step. Math.random near 1
+      // (specifically ≥ (i/(i+1)) for every i) makes each Fisher-Yates
+      // step swap an element with itself -- a true no-op shuffle.
+      const rand = vi.spyOn(Math, "random").mockReturnValue(0.99999);
+
+      await loadHub();
+      await switchToFlashcards();
+      const startBtn = document.getElementById("fc-start") as HTMLButtonElement;
+      startBtn.click();
+      await vi.waitFor(() => {
+        expect(document.getElementById("fc-session")!.classList.contains("hidden")).toBe(false);
+      });
+
+      rand.mockRestore();
+    }
+
+    function flip() {
+      (document.getElementById("fc-flip") as HTMLButtonElement).click();
+    }
+    function answerRight() {
+      (document.getElementById("fc-right") as HTMLButtonElement).click();
+    }
+    function answerWrong() {
+      (document.getElementById("fc-wrong") as HTMLButtonElement).click();
+    }
+    function rewind() {
+      (document.getElementById("fc-rewind") as HTMLButtonElement).click();
+    }
+
+    function chars(): string {
+      return document.getElementById("fc-chars")!.textContent ?? "";
+    }
+    function progress(): string {
+      return document.getElementById("fc-progress")!.textContent ?? "";
+    }
+    function correctWidth(): string {
+      return (document.getElementById("fc-progress-bar-correct") as HTMLDivElement).style.width;
+    }
+    function wrongWidth(): string {
+      return (document.getElementById("fc-progress-bar-wrong") as HTMLDivElement).style.width;
+    }
+    function rewindBtn(): HTMLButtonElement {
+      return document.getElementById("fc-rewind") as HTMLButtonElement;
+    }
+
+    it("renders N/T format and zero-width bar at session start", async () => {
+      await startOrderedSession(["a", "b", "c", "d"]);
+      expect(progress()).toBe("1/4");
+      expect(correctWidth()).toBe("0%");
+      expect(wrongWidth()).toBe("0%");
+    });
+
+    it("disables the rewind button on the first card", async () => {
+      await startOrderedSession(["a", "b", "c", "d"]);
+      expect(rewindBtn().disabled).toBe(true);
+    });
+
+    it("grows the green bar segment after a Right answer", async () => {
+      await startOrderedSession(["a", "b", "c", "d"]);
+      flip();
+      answerRight();
+      await vi.waitFor(() => expect(progress()).toBe("2/4"));
+      expect(correctWidth()).toBe("25%");
+      expect(wrongWidth()).toBe("0%");
+    });
+
+    it("grows the red bar segment after a Wrong answer", async () => {
+      await startOrderedSession(["a", "b", "c", "d"]);
+      flip();
+      answerWrong();
+      await vi.waitFor(() => expect(progress()).toBe("2/4"));
+      expect(correctWidth()).toBe("0%");
+      expect(wrongWidth()).toBe("25%");
+    });
+
+    it("accumulates green + red across mixed answers", async () => {
+      await startOrderedSession(["a", "b", "c", "d"]);
+      flip(); answerRight();
+      await vi.waitFor(() => expect(progress()).toBe("2/4"));
+      flip(); answerWrong();
+      await vi.waitFor(() => expect(progress()).toBe("3/4"));
+      flip(); answerRight();
+      await vi.waitFor(() => expect(progress()).toBe("4/4"));
+      // Two right, one wrong, before the last card answer.
+      expect(correctWidth()).toBe("50%");
+      expect(wrongWidth()).toBe("25%");
+    });
+
+    it("rewinds to the previous card and preserves order", async () => {
+      await startOrderedSession(["a", "b", "c", "d"]);
+      expect(chars()).toBe("a");
+
+      flip(); answerRight();
+      await vi.waitFor(() => expect(chars()).toBe("b"));
+
+      flip(); answerWrong();
+      await vi.waitFor(() => expect(chars()).toBe("c"));
+
+      rewind();
+      await vi.waitFor(() => expect(chars()).toBe("b"));
+      expect(progress()).toBe("2/4");
+
+      rewind();
+      await vi.waitFor(() => expect(chars()).toBe("a"));
+      expect(progress()).toBe("1/4");
+      expect(rewindBtn().disabled).toBe(true);
+
+      // Going forward again restores the same order.
+      flip(); answerRight();
+      await vi.waitFor(() => expect(chars()).toBe("b"));
+      flip(); answerRight();
+      await vi.waitFor(() => expect(chars()).toBe("c"));
+    });
+
+    it("shrinks the bar when an answer is rewound", async () => {
+      await startOrderedSession(["a", "b", "c", "d"]);
+      flip(); answerRight();
+      await vi.waitFor(() => expect(correctWidth()).toBe("25%"));
+      flip(); answerWrong();
+      await vi.waitFor(() => expect(wrongWidth()).toBe("25%"));
+
+      rewind();
+      await vi.waitFor(() => expect(wrongWidth()).toBe("0%"));
+      // The earlier Right answer is still on the bar.
+      expect(correctWidth()).toBe("25%");
+
+      rewind();
+      await vi.waitFor(() => expect(correctWidth()).toBe("0%"));
+      expect(wrongWidth()).toBe("0%");
+    });
+
+    it("calls restoreFlashcardState with the pre-answer snapshot on rewind", async () => {
+      await startOrderedSession(["a", "b", "c", "d"]);
+      flip(); answerRight();
+      await vi.waitFor(() => expect(chars()).toBe("b"));
+
+      rewind();
+      await vi.waitFor(() => expect(chars()).toBe("a"));
+
+      expect(mockedRestoreState).toHaveBeenCalledTimes(1);
+      const [restoredChars, snapshot] = mockedRestoreState.mock.calls[0];
+      expect(restoredChars).toBe("a");
+      // Pre-answer snapshot for a fresh card mirrors the seed values.
+      expect(snapshot).toEqual({
+        intervalDays: 0,
+        nextDueAt: 0,
+        wrongStreak: 0,
+        totalReviews: 0,
+        totalCorrect: 0,
+      });
+    });
+
+    it("rewinds from the summary screen back to the last card", async () => {
+      await startOrderedSession(["a", "b"]);
+      flip(); answerRight();
+      await vi.waitFor(() => expect(chars()).toBe("b"));
+      flip(); answerRight();
+
+      // After the last card, summary takes over.
+      await vi.waitFor(() => {
+        expect(document.getElementById("fc-summary")!.classList.contains("hidden")).toBe(false);
+      });
+
+      rewind();
+      await vi.waitFor(() => {
+        expect(document.getElementById("fc-summary")!.classList.contains("hidden")).toBe(true);
+        expect(document.getElementById("fc-session")!.classList.contains("hidden")).toBe(false);
+        expect(chars()).toBe("b");
+      });
+      expect(progress()).toBe("2/2");
+      // The bar drops the last green segment (one Right left).
+      expect(correctWidth()).toBe("50%");
+    });
+
+    it("re-answering a rewound card does not double-count totals", async () => {
+      await startOrderedSession(["a", "b"]);
+      flip(); answerRight();
+      await vi.waitFor(() => expect(chars()).toBe("b"));
+      rewind();
+      await vi.waitFor(() => expect(chars()).toBe("a"));
+      flip(); answerWrong();
+      await vi.waitFor(() => expect(chars()).toBe("b"));
+
+      // After rewind, the bar reflects only the new wrong answer.
+      expect(correctWidth()).toBe("0%");
+      expect(wrongWidth()).toBe("50%");
+
+      // Two writes: original Right, then post-rewind Wrong. The restore
+      // call sits between them; the second updateFlashcardResult is
+      // applied on top of the restored (pre-answer) state, so totals
+      // can't drift.
+      expect(mockedUpdateResult).toHaveBeenCalledTimes(2);
+      expect(mockedRestoreState).toHaveBeenCalledTimes(1);
+    });
+
+    it("ignores rewind clicks when there is nothing to rewind", async () => {
+      await startOrderedSession(["a", "b"]);
+      // Rewind on first card is a no-op (button disabled, but force the
+      // click path anyway to confirm the handler short-circuits).
+      rewind();
+      await new Promise((r) => setTimeout(r, 10));
+      expect(mockedRestoreState).not.toHaveBeenCalled();
+      expect(chars()).toBe("a");
+      expect(progress()).toBe("1/2");
     });
   });
 
@@ -1185,8 +1432,11 @@ describe("hub page", () => {
             <button id="fc-start"></button>
           </div>
           <div id="fc-session" class="hidden">
+            <button id="fc-rewind" disabled></button>
             <span id="fc-progress"></span>
             <button id="fc-close"></button>
+            <div id="fc-progress-bar-correct"></div>
+            <div id="fc-progress-bar-wrong"></div>
             <div id="fc-chars"></div>
             <div id="fc-answer" class="hidden">
               <div id="fc-pinyin"></div>

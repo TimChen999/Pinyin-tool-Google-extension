@@ -647,16 +647,69 @@ button.vocab-bucket-summary-chip.active {
 
 .fc-session-header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 8px;
   width: 100%;
   max-width: 480px;
   margin-bottom: 32px;
 }
 
+.fc-progress-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
 #fc-progress {
   font-size: 14px;
   color: #6b7280;
+  font-variant-numeric: tabular-nums;
+}
+
+.fc-rewind-btn {
+  border: none;
+  background: none;
+  font-size: 18px;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: color 0.15s, background 0.15s, opacity 0.15s;
+}
+
+.fc-rewind-btn:hover:not(:disabled) {
+  color: #374151;
+  background: #f3f4f6;
+}
+
+.fc-rewind-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.fc-progress-bar {
+  display: flex;
+  width: 100%;
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.fc-progress-bar-correct {
+  height: 100%;
+  width: 0%;
+  background: #16a34a;
+  transition: width 0.2s ease;
+}
+
+.fc-progress-bar-wrong {
+  height: 100%;
+  width: 0%;
+  background: #dc2626;
+  transition: width 0.2s ease;
 }
 
 .fc-close-btn {
@@ -1339,6 +1392,24 @@ body[data-theme="dark"] .fc-available {
   color: #6b7280;
 }
 
+body[data-theme="dark"] .fc-rewind-btn {
+  color: #6b7280;
+}
+body[data-theme="dark"] .fc-rewind-btn:hover:not(:disabled) {
+  color: #d1d5db;
+  background: #374151;
+}
+
+body[data-theme="dark"] .fc-progress-bar {
+  background: #374151;
+}
+body[data-theme="dark"] .fc-progress-bar-correct {
+  background: #4ade80;
+}
+body[data-theme="dark"] .fc-progress-bar-wrong {
+  background: #f87171;
+}
+
 body[data-theme="dark"] .fc-close-btn {
   color: #6b7280;
 }
@@ -1469,6 +1540,11 @@ body[data-theme="dark"] .hub-tab-content::-webkit-scrollbar-thumb:hover {
   body[data-theme="auto"] .fc-available { color: #6b7280; }
   body[data-theme="auto"] .fc-close-btn { color: #6b7280; }
   body[data-theme="auto"] .fc-close-btn:hover { color: #d1d5db; background: #374151; }
+  body[data-theme="auto"] .fc-rewind-btn { color: #6b7280; }
+  body[data-theme="auto"] .fc-rewind-btn:hover:not(:disabled) { color: #d1d5db; background: #374151; }
+  body[data-theme="auto"] .fc-progress-bar { background: #374151; }
+  body[data-theme="auto"] .fc-progress-bar-correct { background: #4ade80; }
+  body[data-theme="auto"] .fc-progress-bar-wrong { background: #f87171; }
 
   body[data-theme="auto"] { accent-color: #60a5fa; }
   body[data-theme="auto"] .hub-tab-content { scrollbar-color: #4b5563 transparent; }
@@ -1689,6 +1765,13 @@ body[data-theme="sepia"] .fc-setup-label { color: #8b7355; }
 body[data-theme="sepia"] .fc-available { color: #8b7355; }
 body[data-theme="sepia"] .fc-close-btn { color: #8b7355; }
 body[data-theme="sepia"] .fc-close-btn:hover { color: #5c4b37; background: #ede4cf; }
+
+body[data-theme="sepia"] .fc-rewind-btn { color: #8b7355; }
+body[data-theme="sepia"] .fc-rewind-btn:hover:not(:disabled) { color: #5c4b37; background: #ede4cf; }
+
+body[data-theme="sepia"] .fc-progress-bar { background: #ede4cf; }
+body[data-theme="sepia"] .fc-progress-bar-correct { background: #15803d; }
+body[data-theme="sepia"] .fc-progress-bar-wrong { background: #b45309; }
 
 body[data-theme="sepia"] {
   accent-color: #b8860b;

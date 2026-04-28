@@ -12,6 +12,7 @@ import {
   removeWord,
   setExampleTranslation,
   updateFlashcardResult,
+  restoreFlashcardState,
   importVocab,
 } from "../background/vocab-store";
 import { convertToPinyin } from "../background/pinyin-service";
@@ -20,6 +21,7 @@ import {
 } from "../shared/constants";
 import { translateExampleSentence } from "../shared/translate-example";
 import {
+  applyReviewResult,
   bucketLabel,
   getVocabBucket,
   isDue,
@@ -31,11 +33,41 @@ import type { ReaderSettings } from "../reader/reader-types";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
+/**
+ * Snapshot of the SRS-scheduling fields on a vocab entry, captured
+ * just before answerCard writes a review result. Pushing one of these
+ * onto session.history per answered card is what lets rewindCard undo
+ * the storage write -- updateFlashcardResult persists immediately so
+ * partial sessions aren't lost on tab close, but that means the
+ * rewind path needs an explicit inverse to restore the prior state.
+ */
+interface SRSSnapshot {
+  intervalDays: number;
+  nextDueAt: number;
+  wrongStreak: number;
+  totalReviews: number;
+  totalCorrect: number;
+}
+
 interface FlashcardSession {
   cards: VocabEntry[];
   currentIndex: number;
+  /**
+   * Per-card answer recorded when the user clicks Right / Wrong.
+   * Always satisfies `results.length === currentIndex` while the user
+   * is on a not-yet-answered card, so the green/red progress-bar split
+   * is just `results.filter(r => r === "right").length / cards.length`.
+   * Rewind pops the trailing entry as it walks back.
+   */
   results: ("right" | "wrong")[];
   isFlipped: boolean;
+  /**
+   * Pre-answer SRS snapshots, one per entry in `results`. Same length
+   * invariant -- pushed by answerCard before the storage write, popped
+   * by rewindCard so the entry can be restored to its prior state via
+   * restoreFlashcardState.
+   */
+  history: SRSSnapshot[];
 }
 
 // ─── DOM References ──────────────────────────────────────────────────
@@ -57,6 +89,9 @@ function getElements() {
     fcStart: document.getElementById("fc-start") as HTMLButtonElement,
     fcSizeBtns: document.querySelectorAll<HTMLButtonElement>(".fc-size-btn"),
     fcProgress: document.getElementById("fc-progress") as HTMLSpanElement,
+    fcRewind: document.getElementById("fc-rewind") as HTMLButtonElement | null,
+    fcProgressBarCorrect: document.getElementById("fc-progress-bar-correct") as HTMLDivElement | null,
+    fcProgressBarWrong: document.getElementById("fc-progress-bar-wrong") as HTMLDivElement | null,
     fcClose: document.getElementById("fc-close") as HTMLButtonElement,
     fcChars: document.getElementById("fc-chars") as HTMLDivElement,
     fcAnswer: document.getElementById("fc-answer") as HTMLDivElement,
@@ -629,7 +664,7 @@ function formatSessionEstimate(count: number, bucket: VocabBucket | "all", isAll
 function showCard(els: ReturnType<typeof getElements>): void {
   if (!session) return;
   const card = session.cards[session.currentIndex];
-  els.fcProgress.textContent = `Card ${session.currentIndex + 1} of ${session.cards.length}`;
+  els.fcProgress.textContent = `${session.currentIndex + 1}/${session.cards.length}`;
   els.fcChars.textContent = card.chars;
   els.fcPinyin.textContent = card.pinyin;
   els.fcDefinition.textContent = card.definition;
@@ -643,6 +678,50 @@ function showCard(els: ReturnType<typeof getElements>): void {
   els.fcFlip.classList.remove("hidden");
   els.fcJudge.classList.add("hidden");
   session.isFlipped = false;
+
+  updateProgressBar(els);
+  updateRewindButton(els);
+}
+
+/**
+ * Paints the green/red progress-bar segments based on session results.
+ * Each segment's width is its share of the total deck (in percent), so
+ * the green slice plus red slice plus untouched gray track add up to
+ * 100%. Idempotent and cheap; called from showCard, answerCard, and
+ * rewindCard so the bar always matches results.
+ *
+ * No-op when the bar elements aren't in the DOM (some test scaffolds
+ * mount a minimal session without the header) so callers don't need
+ * defensive checks at the call sites.
+ */
+function updateProgressBar(els: ReturnType<typeof getElements>): void {
+  if (!session) return;
+  if (!els.fcProgressBarCorrect || !els.fcProgressBarWrong) return;
+  const total = session.cards.length;
+  if (total === 0) {
+    els.fcProgressBarCorrect.style.width = "0%";
+    els.fcProgressBarWrong.style.width = "0%";
+    return;
+  }
+  let right = 0;
+  let wrong = 0;
+  for (const r of session.results) {
+    if (r === "right") right++;
+    else wrong++;
+  }
+  els.fcProgressBarCorrect.style.width = `${(right / total) * 100}%`;
+  els.fcProgressBarWrong.style.width = `${(wrong / total) * 100}%`;
+}
+
+/**
+ * Disables the rewind button when there is nothing to rewind to (i.e.
+ * results.length === 0 — first card, untouched). Otherwise enables it.
+ * Visibility is preserved so the layout stays stable across the first
+ * answer; only the disabled attribute toggles.
+ */
+function updateRewindButton(els: ReturnType<typeof getElements>): void {
+  if (!session || !els.fcRewind) return;
+  els.fcRewind.disabled = session.results.length === 0;
 }
 
 function flipCard(els: ReturnType<typeof getElements>): void {
@@ -739,8 +818,33 @@ async function answerCard(
 ): Promise<void> {
   if (!session) return;
   const card = session.cards[session.currentIndex];
+
+  // Snapshot BEFORE the storage write so rewind can restore the
+  // pre-answer SRS state. Same shape regardless of correct/wrong --
+  // applyReviewResult mutates intervalDays / nextDueAt / wrongStreak /
+  // totalReviews / totalCorrect, so all five are captured.
+  session.history.push({
+    intervalDays: card.intervalDays ?? 0,
+    nextDueAt: card.nextDueAt ?? 0,
+    wrongStreak: card.wrongStreak ?? 0,
+    totalReviews: card.totalReviews ?? 0,
+    totalCorrect: card.totalCorrect ?? 0,
+  });
+
   session.results.push(correct ? "right" : "wrong");
   await updateFlashcardResult(card.chars, correct);
+
+  // Mirror the persisted change onto our in-memory card so a rewind +
+  // re-answer captures a fresh, accurate snapshot the second time
+  // through. Without this, history.push would re-record the original
+  // pre-session values on the next answer, drifting the rewind from
+  // what's on disk.
+  const next = applyReviewResult(card, correct, Date.now());
+  card.intervalDays = next.intervalDays;
+  card.nextDueAt = next.nextDueAt;
+  card.wrongStreak = next.wrongStreak;
+  card.totalReviews = next.totalReviews;
+  card.totalCorrect = next.totalCorrect;
 
   if (session.currentIndex + 1 < session.cards.length) {
     session.currentIndex++;
@@ -748,6 +852,54 @@ async function answerCard(
   } else {
     showSummary(els);
   }
+}
+
+/**
+ * Walks one step backwards through the session: pops the last result
+ * + snapshot, restores the previous card's SRS state in storage, and
+ * re-renders that card's question side. Order is preserved because
+ * `session.cards` is built once in startSession and never mutated --
+ * rewind only moves currentIndex.
+ *
+ * Safe to call when there's nothing to rewind (no-op). Also safe from
+ * the summary screen: the summary is hidden, the session view is
+ * brought back, and the just-answered final card is restored.
+ */
+async function rewindCard(els: ReturnType<typeof getElements>): Promise<void> {
+  if (!session) return;
+  if (session.results.length === 0) return;
+
+  // Pop the trailing result + snapshot for the card we're undoing.
+  session.results.pop();
+  const snapshot = session.history.pop()!;
+
+  // If we're on the summary screen, currentIndex still points to the
+  // last card (showSummary doesn't advance past the deck). In that
+  // case the card-to-restore is exactly cards[currentIndex]. Otherwise
+  // we just answered a card and advanced one slot; step back to the
+  // card whose answer we're undoing.
+  const onSummary = !els.fcSummary.classList.contains("hidden");
+  if (!onSummary) {
+    session.currentIndex = Math.max(0, session.currentIndex - 1);
+  }
+
+  const restoredCard = session.cards[session.currentIndex];
+  await restoreFlashcardState(restoredCard.chars, snapshot);
+
+  // Mirror the restore onto the in-memory card so a re-answer captures
+  // a fresh snapshot built from the actual current state.
+  restoredCard.intervalDays = snapshot.intervalDays;
+  restoredCard.nextDueAt = snapshot.nextDueAt;
+  restoredCard.wrongStreak = snapshot.wrongStreak;
+  restoredCard.totalReviews = snapshot.totalReviews;
+  restoredCard.totalCorrect = snapshot.totalCorrect;
+
+  if (onSummary) {
+    els.fcSummary.classList.add("hidden");
+    els.fcSession.classList.remove("hidden");
+  }
+
+  showCard(els);
 }
 
 function showSummary(els: ReturnType<typeof getElements>): void {
@@ -800,6 +952,7 @@ async function startSession(els: ReturnType<typeof getElements>): Promise<void> 
     currentIndex: 0,
     results: [],
     isFlipped: false,
+    history: [],
   };
 
   lastSelectedSize = selectedSize;
@@ -1146,6 +1299,7 @@ export async function initHub(): Promise<void> {
   els.fcWrong.addEventListener("click", () => answerCard(false, els));
   els.fcRight.addEventListener("click", () => answerCard(true, els));
   els.fcClose.addEventListener("click", () => showSummary(els));
+  els.fcRewind?.addEventListener("click", () => void rewindCard(els));
   els.fcAgain.addEventListener("click", () => {
     selectedSize = lastSelectedSize;
     showSetup(els);
