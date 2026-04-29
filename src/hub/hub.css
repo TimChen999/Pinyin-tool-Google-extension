@@ -743,6 +743,34 @@ button.vocab-bucket-summary-chip.active {
   background: #f3f4f6;
 }
 
+/* Back arrow (top-left) on the per-character drill-down card. Mirrors
+ * .vocab-card-close so the two controls are visually balanced; only the
+ * positioning and glyph differ. */
+.vocab-card-back {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  border: none;
+  background: none;
+  font-size: 20px;
+  color: #9ca3af;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.vocab-card-back:hover {
+  color: #374151;
+  background: #f3f4f6;
+}
+
+/* Reserve room for the back arrow above the headword on the drill-down
+ * card so the chars row doesn't sit directly under the arrow. */
+.vocab-card-char-detail .vocab-card-chars-row {
+  margin-top: 8px;
+}
+
 /* Headword row: large characters next to a small TTS speaker. The row
  * keeps the chars baseline-aligned with the button and reserves the
  * same bottom margin the chars div had on its own so the rest of the
@@ -903,6 +931,24 @@ button.vocab-bucket-summary-chip.active {
   font-size: 13px;
   color: #4b5563;
   line-height: 1.5;
+}
+
+/* When the row is wired up as a drill-down trigger (parent card's
+ * Characters panel), give it a subtle hover/focus affordance so it's
+ * visibly clickable. The offset margin cancels the inset padding so
+ * row text alignment stays identical to non-clickable rows. */
+.vocab-card-char-row-clickable {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin: 0 -6px;
+  transition: background-color 120ms ease;
+}
+
+.vocab-card-char-row-clickable:hover,
+.vocab-card-char-row-clickable:focus-visible {
+  background: #f3f4f6;
+  outline: none;
 }
 
 .vocab-card-char-han {
@@ -2124,12 +2170,19 @@ body[data-theme="dark"] .vocab-card::-webkit-scrollbar-thumb:hover {
   background: #818cf8;
 }
 
-body[data-theme="dark"] .vocab-card-close {
+body[data-theme="dark"] .vocab-card-close,
+body[data-theme="dark"] .vocab-card-back {
   color: #6b7280;
 }
 
-body[data-theme="dark"] .vocab-card-close:hover {
+body[data-theme="dark"] .vocab-card-close:hover,
+body[data-theme="dark"] .vocab-card-back:hover {
   color: #d1d5db;
+  background: #374151;
+}
+
+body[data-theme="dark"] .vocab-card-char-row-clickable:hover,
+body[data-theme="dark"] .vocab-card-char-row-clickable:focus-visible {
   background: #374151;
 }
 
@@ -2526,8 +2579,12 @@ body[data-theme="dark"] .hub-tab-content::-webkit-scrollbar-thumb:hover {
   body[data-theme="auto"] .vocab-card { background: #1f2937; box-shadow: 0 8px 32px rgba(0,0,0,0.4); scrollbar-color: #4b5563 transparent; }
   body[data-theme="auto"] .vocab-card::-webkit-scrollbar-thumb { background: #4b5563; }
   body[data-theme="auto"] .vocab-card::-webkit-scrollbar-thumb:hover { background: #818cf8; }
-  body[data-theme="auto"] .vocab-card-close { color: #6b7280; }
-  body[data-theme="auto"] .vocab-card-close:hover { color: #d1d5db; background: #374151; }
+  body[data-theme="auto"] .vocab-card-close,
+  body[data-theme="auto"] .vocab-card-back { color: #6b7280; }
+  body[data-theme="auto"] .vocab-card-close:hover,
+  body[data-theme="auto"] .vocab-card-back:hover { color: #d1d5db; background: #374151; }
+  body[data-theme="auto"] .vocab-card-char-row-clickable:hover,
+  body[data-theme="auto"] .vocab-card-char-row-clickable:focus-visible { background: #374151; }
   body[data-theme="auto"] .vocab-card-chars { color: #f3f4f6; }
   body[data-theme="auto"] .vocab-card-pinyin { color: #9ca3af; }
   body[data-theme="auto"] .vocab-card-def { color: #d1d5db; }
@@ -2762,8 +2819,12 @@ body[data-theme="sepia"] .vocab-card {
 }
 body[data-theme="sepia"] .vocab-card::-webkit-scrollbar-thumb { background: #d4c8ab; }
 body[data-theme="sepia"] .vocab-card::-webkit-scrollbar-thumb:hover { background: #b8860b; }
-body[data-theme="sepia"] .vocab-card-close { color: #8b7355; }
-body[data-theme="sepia"] .vocab-card-close:hover { color: #5c4b37; background: #ede4cf; }
+body[data-theme="sepia"] .vocab-card-close,
+body[data-theme="sepia"] .vocab-card-back { color: #8b7355; }
+body[data-theme="sepia"] .vocab-card-close:hover,
+body[data-theme="sepia"] .vocab-card-back:hover { color: #5c4b37; background: #ede4cf; }
+body[data-theme="sepia"] .vocab-card-char-row-clickable:hover,
+body[data-theme="sepia"] .vocab-card-char-row-clickable:focus-visible { background: #ede4cf; }
 body[data-theme="sepia"] .vocab-card-chars { color: #5c4b37; }
 body[data-theme="sepia"] .vocab-card-pinyin { color: #8b7355; }
 body[data-theme="sepia"] .vocab-card-def { color: #5c4b37; }

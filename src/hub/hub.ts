@@ -550,7 +550,11 @@ function fillCardDetails(container: HTMLElement, chars: string): void {
  * Iterates by codepoint so rare CJK in supplementary planes (surrogate
  * pairs) are handled as single characters rather than being split.
  */
-function fillCharsBreakdown(container: HTMLElement, chars: string): void {
+function fillCharsBreakdown(
+  container: HTMLElement,
+  chars: string,
+  onCharClick?: (ch: string) => void,
+): void {
   while (container.firstChild) container.removeChild(container.firstChild);
   const charList = Array.from(chars);
   // Dedupe so a repeated character (e.g. 中 in 中共中央) only contributes
@@ -569,6 +573,23 @@ function fillCharsBreakdown(container: HTMLElement, chars: string): void {
     entries.forEach((entry, idx) => {
       const row = document.createElement("div");
       row.className = "vocab-card-char-row";
+      if (onCharClick) {
+        row.classList.add("vocab-card-char-row-clickable");
+        row.tabIndex = 0;
+        row.setAttribute("role", "button");
+        row.setAttribute("aria-label", `Look up ${ch}`);
+        row.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          onCharClick(ch);
+        });
+        row.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter" || ev.key === " ") {
+            ev.preventDefault();
+            ev.stopPropagation();
+            onCharClick(ch);
+          }
+        });
+      }
 
       const han = document.createElement("span");
       han.className = "vocab-card-char-han";
@@ -689,6 +710,11 @@ async function showVocabCard(
 
   const overlay = document.createElement("div");
   overlay.className = "vocab-card-overlay";
+  // Opt the whole card out of the page-level click-flow so clicking a
+  // Chinese character inside the card never opens the small in-page
+  // lookup popup on top of it. The card surfaces its own per-character
+  // drill-down via showCharDetailCard.
+  overlay.dataset.noClickflow = "";
 
   const card = document.createElement("div");
   card.className = "vocab-card";
@@ -806,9 +832,17 @@ async function showVocabCard(
   charsPanel.className = "vocab-card-chars-panel";
   charsPanel.hidden = true;
 
+  // Clicking a row inside the breakdown drills into that character via
+  // the hub-styled char detail card (with a back arrow that returns
+  // here). Routed through the parent vocab card so the small click-flow
+  // popup stays out of this surface.
+  const onCharRowClick = (ch: string) => {
+    void showCharDetailCard(ch, entry, els);
+  };
+
   charsToggle.addEventListener("click", () => {
     if (charsPanel.hidden) {
-      fillCharsBreakdown(charsPanel, entry.chars);
+      fillCharsBreakdown(charsPanel, entry.chars, onCharRowClick);
       charsPanel.hidden = false;
       charsToggle.setAttribute("aria-expanded", "true");
     } else {
@@ -836,7 +870,8 @@ async function showVocabCard(
       return;
     }
     charsSection.hidden = false;
-    if (!charsPanel.hidden) fillCharsBreakdown(charsPanel, entry.chars);
+    if (!charsPanel.hidden)
+      fillCharsBreakdown(charsPanel, entry.chars, onCharRowClick);
   }
   refreshCharsAffordance();
 
@@ -1045,6 +1080,233 @@ async function showVocabCard(
   // Insert above the Characters section so the per-character breakdown
   // remains the bottom-most section before the action buttons.
   if (examples) card.insertBefore(examples, charsSection);
+}
+
+/**
+ * Drill-down card surfaced when the user clicks a character row inside
+ * a parent vocab card's Characters breakdown. Replaces (rather than
+ * stacks on top of) the parent card and surfaces the same hub-styled
+ * pinyin/definition/Details/Components blocks the parent card uses so
+ * the visual rhythm is identical. The top-left back arrow restores
+ * `parentEntry` via showVocabCard, so the user can drill into a
+ * character and pop back without losing the parent context.
+ *
+ * Intentionally lighter than showVocabCard:
+ *  - No "+ Vocab" affordance — drill-down has no surrounding example
+ *    sentence to capture, and saving every drilled character would
+ *    pollute the vocab list.
+ *  - No bucket pill / SRS metadata / delete button — the character
+ *    isn't a vocab entry here, just a CC-CEDICT lookup.
+ */
+function showCharDetailCard(
+  ch: string,
+  parentEntry: VocabEntry,
+  els: ReturnType<typeof getElements>,
+): void {
+  dismissVocabCard();
+
+  const overlay = document.createElement("div");
+  overlay.className = "vocab-card-overlay";
+  overlay.dataset.noClickflow = "";
+
+  const card = document.createElement("div");
+  card.className = "vocab-card vocab-card-char-detail";
+
+  // Back arrow (top-left) — pops back to the parent vocab card the user
+  // drilled in from. Mirrors the close button's positioning so the two
+  // controls bookend the top row.
+  const backBtn = document.createElement("button");
+  backBtn.type = "button";
+  backBtn.className = "vocab-card-back";
+  backBtn.setAttribute("aria-label", `Back to ${parentEntry.chars}`);
+  backBtn.textContent = "←"; // left arrow
+  backBtn.addEventListener("click", () => {
+    void showVocabCard(parentEntry, els);
+  });
+
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "vocab-card-close";
+  closeBtn.textContent = "×";
+  closeBtn.addEventListener("click", dismissVocabCard);
+
+  const charsRow = document.createElement("div");
+  charsRow.className = "vocab-card-chars-row";
+
+  const chars = document.createElement("div");
+  chars.className = "vocab-card-chars";
+  chars.textContent = ch;
+
+  const charsTts = buildTtsButton(ch, "Play character");
+  charsTts.classList.add("vocab-card-chars-tts");
+
+  charsRow.append(chars, charsTts);
+
+  // Pinyin + definition pulled from CC-CEDICT's first reading. Multiple
+  // readings (when present) live in the Details dropdown below, same as
+  // the parent vocab card's headword treatment.
+  const pinyin = document.createElement("div");
+  pinyin.className = "vocab-card-pinyin";
+
+  const def = document.createElement("div");
+  def.className = "vocab-card-def";
+
+  function refreshHeadFromCedict(): void {
+    const entries = lookupExact(ch);
+    const first = entries?.[0];
+    pinyin.textContent = first
+      ? formatPinyin(first.pinyinNumeric, "toneMarks")
+      : "";
+    let defText = first ? first.definitions.slice(0, 4).join("; ") : "";
+    if (!defText && first && first.modifiers.length > 0) {
+      defText = formatModifier(first.modifiers[0], "toneMarks");
+    }
+    def.textContent = defText;
+  }
+  refreshHeadFromCedict();
+
+  // Details dropdown (alt readings + modifiers) — reuses the parent
+  // card's affordance verbatim so multi-reading characters like 武 (wǔ
+  // / mǔ) show both, and modifiers (e.g. classifiers) surface the same
+  // way they do on a saved vocab card.
+  const detailsBtn = document.createElement("button");
+  detailsBtn.type = "button";
+  detailsBtn.className = "vocab-card-details-btn";
+  detailsBtn.hidden = true;
+
+  const details = document.createElement("div");
+  details.className = "vocab-card-details";
+  details.hidden = true;
+
+  detailsBtn.addEventListener("click", () => {
+    if (details.hidden) {
+      fillCardDetails(details, ch);
+      details.hidden = false;
+      detailsBtn.setAttribute("aria-expanded", "true");
+    } else {
+      details.hidden = true;
+      detailsBtn.setAttribute("aria-expanded", "false");
+    }
+  });
+
+  function refreshDetailsAffordance(): void {
+    const entries = lookupExact(ch);
+    if (!entries || entries.length === 0) {
+      detailsBtn.hidden = true;
+      details.hidden = true;
+      return;
+    }
+    const hasMultipleReadings = entries.length > 1;
+    const hasModifiers = entries.some((e) => e.modifiers.length > 0);
+    if (!hasMultipleReadings && !hasModifiers) {
+      detailsBtn.hidden = true;
+      details.hidden = true;
+      return;
+    }
+    detailsBtn.hidden = false;
+    detailsBtn.textContent = hasMultipleReadings
+      ? `${entries.length} readings`
+      : "Details";
+    detailsBtn.setAttribute("aria-expanded", details.hidden ? "false" : "true");
+    if (!details.hidden) fillCardDetails(details, ch);
+  }
+  refreshDetailsAffordance();
+
+  // Components dropdown (Make Me a Hanzi). Always single-character here
+  // by construction, so we don't need the per-length guard the parent
+  // card uses.
+  const componentsSection = document.createElement("div");
+  componentsSection.className = "vocab-card-components-section";
+  componentsSection.hidden = true;
+
+  const componentsToggle = document.createElement("button");
+  componentsToggle.type = "button";
+  componentsToggle.className = "vocab-card-components-toggle";
+  componentsToggle.setAttribute("aria-expanded", "false");
+
+  const componentsLabel = document.createElement("span");
+  componentsLabel.className = "vocab-card-components-toggle-label";
+  componentsLabel.textContent = "Components";
+
+  const componentsIcon = document.createElement("span");
+  componentsIcon.className = "vocab-card-components-toggle-icon";
+  componentsIcon.setAttribute("aria-hidden", "true");
+  componentsIcon.textContent = "˅";
+
+  componentsToggle.append(componentsLabel, componentsIcon);
+
+  const componentsPanel = document.createElement("div");
+  componentsPanel.className = "vocab-card-components-panel";
+  componentsPanel.hidden = true;
+
+  componentsToggle.addEventListener("click", () => {
+    if (componentsPanel.hidden) {
+      fillComponentsBreakdown(componentsPanel, ch);
+      componentsPanel.hidden = false;
+      componentsToggle.setAttribute("aria-expanded", "true");
+    } else {
+      componentsPanel.hidden = true;
+      componentsToggle.setAttribute("aria-expanded", "false");
+    }
+  });
+
+  componentsSection.append(componentsToggle, componentsPanel);
+
+  function refreshComponentsAffordance(): void {
+    const ce = lookupComponents(ch);
+    if (!ce) {
+      componentsSection.hidden = true;
+      componentsPanel.hidden = true;
+      return;
+    }
+    componentsSection.hidden = false;
+    if (!componentsPanel.hidden) fillComponentsBreakdown(componentsPanel, ch);
+  }
+  refreshComponentsAffordance();
+
+  // Late-arriving dictionaries: when CEDICT or the components data
+  // lands after the card mounted, refresh the affordances in place so
+  // the user sees data instead of an empty pinyin row / hidden section.
+  if (!isDictionaryReady()) {
+    void ensureDictionaryLoaded()
+      .then(() => {
+        if (!document.body.contains(card)) return;
+        refreshHeadFromCedict();
+        refreshDetailsAffordance();
+        refreshComponentsAffordance();
+      })
+      .catch(() => {
+        /* warning already logged at init */
+      });
+  }
+  if (!isComponentsReady()) {
+    void ensureComponentsLoaded()
+      .then(() => {
+        if (!document.body.contains(card)) return;
+        refreshComponentsAffordance();
+      })
+      .catch(() => {
+        /* warning already logged at init */
+      });
+  }
+
+  card.append(
+    backBtn,
+    closeBtn,
+    charsRow,
+    pinyin,
+    def,
+    detailsBtn,
+    details,
+    componentsSection,
+  );
+
+  overlay.appendChild(card);
+
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) dismissVocabCard();
+  });
+
+  document.body.appendChild(overlay);
 }
 
 // ─── Vocab List Rendering ────────────────────────────────────────────
