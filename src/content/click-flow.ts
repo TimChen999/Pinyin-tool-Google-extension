@@ -322,6 +322,26 @@ function sourceDocFromEvent(ev: Event): Document {
   return target?.ownerDocument ?? document;
 }
 
+/**
+ * If the caret node sits inside an `<a href>` ancestor with a web URL,
+ * returns its absolute href. Used by the popup to render an "Open link"
+ * button, since the click flow's preventDefault() otherwise eats the
+ * native link navigation. Filtered to http(s) to avoid surfacing
+ * EPUB-internal hrefs (chrome-extension:// or file://) and pseudo-URLs
+ * like javascript: / mailto: in the action row.
+ */
+function findLinkHref(node: Node | null): string | null {
+  if (!node) return null;
+  const el =
+    node.nodeType === Node.ELEMENT_NODE
+      ? (node as Element)
+      : node.parentElement;
+  const a = el?.closest?.("a[href]") as HTMLAnchorElement | null;
+  if (!a) return null;
+  const href = a.href;
+  return /^https?:\/\//i.test(href) ? href : null;
+}
+
 /** True when the event target is inside an ancestor opted out of
  *  click-flow via the `data-no-clickflow` attribute. Used by the
  *  reader's bookmark sidebar so rows containing Chinese text remain
@@ -501,7 +521,10 @@ async function commitClick(caret: CaretPosition): Promise<void> {
     } else {
       wordData = buildBootstrapWord(word);
     }
-    retargetWord(wordData, sentence.text);
+    // The link is a property of where the user clicked, not the word —
+    // re-resolve it for the new caret so retarget shows/hides the
+    // "Open link" button to match the new click target.
+    retargetWord(wordData, sentence.text, findLinkHref(caret.node));
     refreshPinyinStripActiveWord(word);
 
     // Notify the host so the bookmark anchor follows the newly clicked
@@ -572,6 +595,7 @@ async function commitClick(caret: CaretPosition): Promise<void> {
     // (the SpeechSynthesisUtterance with lang="zh-CN" will use the
     // closest match or be silent — no crash, no error).
     ttsEnabled: settings.ttsEnabled,
+    linkHref: findLinkHref(caret.node),
   });
 
   currentSentence = sentence.text;

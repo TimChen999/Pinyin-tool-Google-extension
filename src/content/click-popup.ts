@@ -161,6 +161,14 @@ export interface ShowBootstrapArgs {
    * available; controls whether the speaker button is rendered.
    */
   ttsEnabled: boolean;
+  /**
+   * Absolute URL of the `<a href>` ancestor containing the clicked
+   * word, or undefined when the click landed outside any link. When set,
+   * the actions row renders an extra button that opens the URL in a new
+   * tab (the click-flow's preventDefault() otherwise swallows native
+   * link navigation).
+   */
+  linkHref?: string | null;
 }
 
 /**
@@ -195,7 +203,7 @@ export function showBootstrap(args: ShowBootstrapArgs): void {
     gloss.textContent = args.word.gloss;
     wordTier.appendChild(gloss);
   }
-  wordTier.appendChild(makeActionsRow(args.word, args.sentence));
+  wordTier.appendChild(makeActionsRow(args.word, args.sentence, args.linkHref ?? null));
 
   popup.appendChild(wordTier);
 
@@ -357,6 +365,7 @@ export function refreshPinyinStripActiveWord(chars: string): void {
 export function retargetWord(
   word: { chars: string; pinyin: string; gloss: string },
   sentence: string,
+  linkHref: string | null = null,
 ): void {
   if (!popupEl) return;
   const tier = popupEl.querySelector(".pt-word-tier");
@@ -373,7 +382,7 @@ export function retargetWord(
     gloss.textContent = word.gloss;
     tier.appendChild(gloss);
   }
-  tier.appendChild(makeActionsRow(word, sentence));
+  tier.appendChild(makeActionsRow(word, sentence, linkHref));
   repositionPopup();
 }
 
@@ -495,6 +504,7 @@ function makeWordHeader(word: {
 function makeActionsRow(
   word: { chars: string; pinyin: string; gloss: string },
   sentence: string,
+  linkHref: string | null,
 ): HTMLElement {
   const row = document.createElement("div");
   row.className = "pt-actions";
@@ -520,6 +530,21 @@ function makeActionsRow(
       btn.disabled = true;
     });
     row.appendChild(btn);
+  }
+
+  if (linkHref) {
+    const linkBtn = document.createElement("button");
+    linkBtn.className = "pt-link-btn";
+    linkBtn.type = "button";
+    linkBtn.textContent = "↗ Open link";
+    linkBtn.title = linkHref;
+    linkBtn.setAttribute("aria-label", `Open link: ${linkHref}`);
+    linkBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      window.open(linkHref, "_blank", "noopener");
+      dismiss();
+    });
+    row.appendChild(linkBtn);
   }
 
   // CC-CEDICT "definition card" affordance. Shown whenever the headword
