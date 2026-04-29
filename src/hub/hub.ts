@@ -556,13 +556,22 @@ function fillCharsBreakdown(container: HTMLElement, chars: string): void {
     seen.add(ch);
     const entries = lookupExact(ch);
     if (!entries || entries.length === 0) continue;
-    for (const entry of entries) {
+    // For multi-reading characters, show the glyph only on the first row
+    // and stack subsequent readings underneath. The repeated rows still
+    // render an empty han span (visibility:hidden in CSS) so the pinyin
+    // column stays aligned with the row above.
+    entries.forEach((entry, idx) => {
       const row = document.createElement("div");
       row.className = "vocab-card-char-row";
 
       const han = document.createElement("span");
       han.className = "vocab-card-char-han";
-      han.textContent = ch;
+      if (idx === 0) {
+        han.textContent = ch;
+      } else {
+        han.classList.add("vocab-card-char-han-repeat");
+        han.textContent = ch;
+      }
 
       const pinyin = document.createElement("span");
       pinyin.className = "vocab-card-char-pinyin";
@@ -581,7 +590,7 @@ function fillCharsBreakdown(container: HTMLElement, chars: string): void {
       row.appendChild(document.createTextNode(" — "));
       row.appendChild(def);
       container.appendChild(row);
-    }
+    });
   }
 }
 

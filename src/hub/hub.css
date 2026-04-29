@@ -910,6 +910,10 @@ button.vocab-bucket-summary-chip.active {
   margin-right: 6px;
 }
 
+.vocab-card-char-han-repeat {
+  visibility: hidden;
+}
+
 .vocab-card-char-pinyin {
   font-weight: 600;
 }
