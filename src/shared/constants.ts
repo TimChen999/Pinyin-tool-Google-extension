@@ -194,6 +194,17 @@ export const DEBOUNCE_MS = 100;
  */
 export const CEDICT_DICT_PATH = "dict/cedict_ts.u8";
 
+// ─── Make Me a Hanzi (character decomposition) ────────────────────
+/**
+ * Stripped-down character-decomposition file derived from
+ * skishore/makemeahanzi at build time by scripts/download-makemeahanzi.mjs.
+ * TSV with one entry per line:
+ *   <char>\t<decomposition>\t<radical>\t<etymologyHint>
+ * Bundled into dist/dict/ via Vite's public/ pass-through and resolved
+ * at runtime via chrome.runtime.getURL().
+ */
+export const COMPONENTS_DICT_PATH = "dict/components.tsv";
+
 /**
  * Maximum number of characters from the caret position passed to
  * findLongest(). Mirrors Zhongwen's 30-char cap. Larger means the

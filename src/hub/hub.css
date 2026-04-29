@@ -918,12 +918,103 @@ button.vocab-bucket-summary-chip.active {
   font-weight: 600;
 }
 
+/* Components section (Make Me a Hanzi character decomposition) — mirrors
+ * .vocab-card-chars-section visually so the card has one consistent
+ * dropdown rhythm. Inner rows reuse .vocab-card-char-* so radicals/leaf
+ * components line up with the per-character breakdown in multi-char
+ * cards. */
+.vocab-card-components-section {
+  margin: 0 0 16px;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+}
+
+.vocab-card-components-section[hidden] { display: none; }
+
+.vocab-card-components-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 12px 0 10px;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: #6b7280;
+}
+
+.vocab-card-components-toggle:hover { color: #4338ca; }
+
+.vocab-card-components-toggle-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.vocab-card-components-toggle-icon {
+  font-size: 12px;
+  line-height: 1;
+  transition: transform 120ms ease;
+}
+
+.vocab-card-components-toggle[aria-expanded="true"] .vocab-card-components-toggle-icon {
+  transform: rotate(180deg);
+}
+
+.vocab-card-components-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 6px;
+}
+
+.vocab-card-components-panel[hidden] { display: none; }
+
+/* The IDS string (e.g. "⿰女子" for 好). Monospace so the IDC operators
+ * sit at a stable visual width independent of the fallback font. */
+.vocab-card-components-ids {
+  font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+  font-size: 14px;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+.vocab-card-components-radical {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.vocab-card-components-radical-han {
+  font-weight: 600;
+}
+
+/* Etymology blurb from upstream (e.g. "A woman 女 with a son 子" for 好).
+ * Italic + dim so it reads as supplementary context, not a definition. */
+.vocab-card-components-hint {
+  font-size: 12px;
+  font-style: italic;
+  color: #6b7280;
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
 body[data-theme="dark"] .vocab-card-reading { color: #d1d5db; }
 body[data-theme="dark"] .vocab-card-modifier { color: #9ca3af; }
 body[data-theme="dark"] .vocab-card-char-row { color: #d1d5db; }
 body[data-theme="dark"] .vocab-card-chars-section { border-top-color: #374151; }
 body[data-theme="dark"] .vocab-card-chars-toggle { color: #9ca3af; }
 body[data-theme="dark"] .vocab-card-chars-toggle:hover { color: #a5b4fc; }
+body[data-theme="dark"] .vocab-card-components-section { border-top-color: #374151; }
+body[data-theme="dark"] .vocab-card-components-toggle { color: #9ca3af; }
+body[data-theme="dark"] .vocab-card-components-toggle:hover { color: #a5b4fc; }
+body[data-theme="dark"] .vocab-card-components-ids { color: #9ca3af; }
+body[data-theme="dark"] .vocab-card-components-radical { color: #9ca3af; }
+body[data-theme="dark"] .vocab-card-components-hint { color: #9ca3af; }
 body[data-theme="dark"] .vocab-card-details-btn {
   background: #1f2937;
   border-color: #4b5563;
@@ -940,6 +1031,12 @@ body[data-theme="sepia"] .vocab-card-char-row { color: #5c4b37; }
 body[data-theme="sepia"] .vocab-card-chars-section { border-top-color: #d4c8ab; }
 body[data-theme="sepia"] .vocab-card-chars-toggle { color: #8b7355; }
 body[data-theme="sepia"] .vocab-card-chars-toggle:hover { color: #b8860b; }
+body[data-theme="sepia"] .vocab-card-components-section { border-top-color: #d4c8ab; }
+body[data-theme="sepia"] .vocab-card-components-toggle { color: #8b7355; }
+body[data-theme="sepia"] .vocab-card-components-toggle:hover { color: #b8860b; }
+body[data-theme="sepia"] .vocab-card-components-ids { color: #8b7355; }
+body[data-theme="sepia"] .vocab-card-components-radical { color: #8b7355; }
+body[data-theme="sepia"] .vocab-card-components-hint { color: #8b7355; }
 body[data-theme="sepia"] .vocab-card-details-btn {
   background: #f4ecd8;
   border-color: #d4c8ab;
@@ -957,6 +1054,12 @@ body[data-theme="sepia"] .vocab-card-details-btn:hover {
   body[data-theme="auto"] .vocab-card-chars-section { border-top-color: #374151; }
   body[data-theme="auto"] .vocab-card-chars-toggle { color: #9ca3af; }
   body[data-theme="auto"] .vocab-card-chars-toggle:hover { color: #a5b4fc; }
+  body[data-theme="auto"] .vocab-card-components-section { border-top-color: #374151; }
+  body[data-theme="auto"] .vocab-card-components-toggle { color: #9ca3af; }
+  body[data-theme="auto"] .vocab-card-components-toggle:hover { color: #a5b4fc; }
+  body[data-theme="auto"] .vocab-card-components-ids { color: #9ca3af; }
+  body[data-theme="auto"] .vocab-card-components-radical { color: #9ca3af; }
+  body[data-theme="auto"] .vocab-card-components-hint { color: #9ca3af; }
   body[data-theme="auto"] .vocab-card-details-btn {
     background: #1f2937;
     border-color: #4b5563;

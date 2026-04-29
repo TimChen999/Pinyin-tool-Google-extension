@@ -29,6 +29,12 @@ import {
   lookupExact,
 } from "../shared/cedict-lookup";
 import {
+  ensureComponentsLoaded,
+  isComponentsReady,
+  leafComponents,
+  lookupComponents,
+} from "../shared/components-lookup";
+import {
   applyReviewResult,
   bucketLabel,
   getVocabBucket,
@@ -594,6 +600,87 @@ function fillCharsBreakdown(container: HTMLElement, chars: string): void {
   }
 }
 
+/**
+ * Renders the Make Me a Hanzi character-decomposition view into
+ * `container` for a single-character headword. Layout:
+ *   - The IDS string itself (small, monospace) — readers familiar with
+ *     IDC operators (⿰⿱⿲...) get the structural shape at a glance.
+ *   - One row per leaf component (IDC operators stripped, headword
+ *     filtered out, deduped) with CC-CEDICT pinyin + a short gloss,
+ *     styled identically to the per-character breakdown rows above.
+ *   - An optional etymology hint (e.g. "A woman 女 with a son 子" for
+ *     好), shown only when the upstream entry carried one.
+ *
+ * No-op when the components dictionary is not loaded or the headword
+ * has no entry; safe to call repeatedly. Iterates by codepoint via
+ * leafComponents() so any supplementary-plane parts survive.
+ */
+function fillComponentsBreakdown(container: HTMLElement, char: string): void {
+  while (container.firstChild) container.removeChild(container.firstChild);
+  const entry = lookupComponents(char);
+  if (!entry) return;
+
+  const ids = document.createElement("div");
+  ids.className = "vocab-card-components-ids";
+  ids.textContent = entry.decomposition;
+  container.appendChild(ids);
+
+  const leaves = leafComponents(entry.decomposition, char);
+  for (const leaf of leaves) {
+    const row = document.createElement("div");
+    row.className = "vocab-card-char-row";
+
+    const han = document.createElement("span");
+    han.className = "vocab-card-char-han";
+    han.textContent = leaf;
+
+    const pinyin = document.createElement("span");
+    pinyin.className = "vocab-card-char-pinyin";
+    const cedictEntries = lookupExact(leaf);
+    const cedictEntry = cedictEntries?.[0];
+    pinyin.textContent = cedictEntry
+      ? formatPinyin(cedictEntry.pinyinNumeric, "toneMarks")
+      : "";
+
+    const def = document.createElement("span");
+    def.className = "vocab-card-char-def";
+    let defText = cedictEntry
+      ? cedictEntry.definitions.slice(0, 2).join("; ")
+      : "";
+    if (!defText && cedictEntry && cedictEntry.modifiers.length > 0) {
+      defText = formatModifier(cedictEntry.modifiers[0], "toneMarks");
+    }
+    def.textContent = defText;
+
+    row.appendChild(han);
+    row.appendChild(pinyin);
+    if (defText) row.appendChild(document.createTextNode(" — "));
+    row.appendChild(def);
+    container.appendChild(row);
+  }
+
+  if (entry.radical && !leaves.includes(entry.radical)) {
+    // Radical wasn't surfaced as a leaf (e.g. it's the whole character
+    // or otherwise absent from the IDS). Show it as a separate small
+    // line so the user still sees what radical the dictionary assigns.
+    const rad = document.createElement("div");
+    rad.className = "vocab-card-components-radical";
+    rad.textContent = "Radical: ";
+    const radHan = document.createElement("span");
+    radHan.className = "vocab-card-components-radical-han";
+    radHan.textContent = entry.radical;
+    rad.appendChild(radHan);
+    container.appendChild(rad);
+  }
+
+  if (entry.hint) {
+    const hint = document.createElement("div");
+    hint.className = "vocab-card-components-hint";
+    hint.textContent = entry.hint;
+    container.appendChild(hint);
+  }
+}
+
 async function showVocabCard(
   entry: VocabEntry,
   els: ReturnType<typeof getElements>,
@@ -753,12 +840,89 @@ async function showVocabCard(
   }
   refreshCharsAffordance();
 
+  // Components section (Make Me a Hanzi). Single-character words only:
+  // multi-char entries already get a per-character breakdown above, and
+  // adding a parallel decomposition list there would duplicate rows for
+  // little gain. Hidden when the headword has no decomposition entry
+  // (rare CJK, the dictionary covers ~9.5k characters).
+  const componentsSection = document.createElement("div");
+  componentsSection.className = "vocab-card-components-section";
+  componentsSection.hidden = true;
+
+  const componentsToggle = document.createElement("button");
+  componentsToggle.type = "button";
+  componentsToggle.className = "vocab-card-components-toggle";
+  componentsToggle.setAttribute("aria-expanded", "false");
+
+  const componentsLabel = document.createElement("span");
+  componentsLabel.className = "vocab-card-components-toggle-label";
+  componentsLabel.textContent = "Components";
+
+  const componentsIcon = document.createElement("span");
+  componentsIcon.className = "vocab-card-components-toggle-icon";
+  componentsIcon.setAttribute("aria-hidden", "true");
+  componentsIcon.textContent = "˅";
+
+  componentsToggle.append(componentsLabel, componentsIcon);
+
+  const componentsPanel = document.createElement("div");
+  componentsPanel.className = "vocab-card-components-panel";
+  componentsPanel.hidden = true;
+
+  componentsToggle.addEventListener("click", () => {
+    if (componentsPanel.hidden) {
+      fillComponentsBreakdown(componentsPanel, entry.chars);
+      componentsPanel.hidden = false;
+      componentsToggle.setAttribute("aria-expanded", "true");
+    } else {
+      componentsPanel.hidden = true;
+      componentsToggle.setAttribute("aria-expanded", "false");
+    }
+  });
+
+  componentsSection.append(componentsToggle, componentsPanel);
+
+  function refreshComponentsAffordance(): void {
+    const charList = Array.from(entry.chars);
+    if (charList.length !== 1) {
+      componentsSection.hidden = true;
+      componentsPanel.hidden = true;
+      return;
+    }
+    const ce = lookupComponents(entry.chars);
+    if (!ce) {
+      componentsSection.hidden = true;
+      componentsPanel.hidden = true;
+      return;
+    }
+    componentsSection.hidden = false;
+    if (!componentsPanel.hidden) {
+      fillComponentsBreakdown(componentsPanel, entry.chars);
+    }
+  }
+  refreshComponentsAffordance();
+
   if (!isDictionaryReady()) {
     void ensureDictionaryLoaded()
       .then(() => {
         if (!document.body.contains(card)) return;
         refreshDetailsAffordance();
         refreshCharsAffordance();
+        // Components rows reuse CC-CEDICT pinyin/gloss; refresh once
+        // CEDICT lands so an open panel picks up the data instead of
+        // showing bare glyphs.
+        refreshComponentsAffordance();
+      })
+      .catch(() => {
+        /* warning already logged at init */
+      });
+  }
+
+  if (!isComponentsReady()) {
+    void ensureComponentsLoaded()
+      .then(() => {
+        if (!document.body.contains(card)) return;
+        refreshComponentsAffordance();
       })
       .catch(() => {
         /* warning already logged at init */
@@ -849,6 +1013,7 @@ async function showVocabCard(
     bucketRow,
     meta,
     charsSection,
+    componentsSection,
     actions,
   );
 

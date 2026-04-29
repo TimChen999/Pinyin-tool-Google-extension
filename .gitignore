@@ -47,3 +47,6 @@ Thumbs.db
 
 # CC-CEDICT data downloaded by scripts/download-cedict.mjs
 public/dict/cedict_ts.u8
+
+# Make Me a Hanzi components data downloaded by scripts/download-makemeahanzi.mjs
+public/dict/components.tsv
